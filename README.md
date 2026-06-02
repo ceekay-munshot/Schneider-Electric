@@ -7,6 +7,45 @@ The scraper logs in with a **normal login flow** using credentials supplied as
 environment variables, navigates to the UPS search results, verifies that prices
 are actually visible, and exports the products it finds.
 
+This repo also contains a separate **Cloudflare Pages dashboard** (Vite + React)
+that displays the latest capture. The two are fully independent: the dashboard is
+a static, read-only UI that never runs the scraper and holds no secrets.
+
+## Dashboard (Cloudflare Pages)
+
+A static Vite + React UI (`index.html`, `src/App.jsx`, `src/styles.css`) — the
+"Critical Power & Data Center Infrastructure Pricing Tracker".
+
+**Cloudflare Pages settings**
+
+| Setting | Value |
+| --- | --- |
+| Framework preset | None |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Node version | 20 (pinned via `.node-version`) |
+
+Add one Pages **environment variable** so the build doesn't download a Chromium
+it never uses (the repo also includes Playwright for the scraper):
+
+```
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = 1
+```
+
+**Local dev / build**
+
+```bash
+npm install
+npm run dev      # local dev server (vite --host 0.0.0.0)
+npm run build    # outputs to dist/
+npm run preview  # serve the built dist/
+```
+
+**Data:** the dashboard loads `public/data/latest-capture.json` if present, and
+otherwise shows a safe "Awaiting first successful Rexel capture" empty state. It
+never fabricates prices or history. A future workflow step can publish the
+scraper's latest successful capture to that path to populate the UI.
+
 ## Secrets / credentials
 
 Credentials are read **only** from environment variables:

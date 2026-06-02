@@ -3,17 +3,27 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Authenticated Rexel USA UPS product capture (Playwright), wired for GitHub Actions.",
+  "description": "Authenticated Rexel USA capture (Playwright, GitHub Actions) + Cloudflare Pages pricing dashboard.",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
     "capture:rexel": "node src/capture-rexel.js",
     "capture:rexel:debug": "node src/capture-rexel.js --debug",
     "check": "node --check src/capture-rexel.js && node --check src/selectors.js",
     "test": "node --test"
   },
   "dependencies": {
-    "playwright": "^1.49.1"
+    "playwright": "^1.49.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
   }
 }

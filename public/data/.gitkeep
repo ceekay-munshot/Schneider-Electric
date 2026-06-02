@@ -1,0 +1,4 @@
+# This folder is where the dashboard looks for published capture data.
+# A future GitHub Actions step can write `latest-capture.json` here from the
+# scraper's latest successful capture. While it is absent, the dashboard shows
+# its safe "Awaiting first successful Rexel capture" empty state.

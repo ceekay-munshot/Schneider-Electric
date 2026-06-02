@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Vite / Cloudflare Pages build output (Pages builds this; do not commit)
+dist/
+.vite/
+
 # Capture output (uploaded as a CI artifact, not committed)
 output/
 
