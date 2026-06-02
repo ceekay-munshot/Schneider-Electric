@@ -1,0 +1,19 @@
+{
+  "name": "rexel-capture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Authenticated Rexel USA UPS product capture (Playwright), wired for GitHub Actions.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "capture:rexel": "node src/capture-rexel.js",
+    "capture:rexel:debug": "node src/capture-rexel.js --debug",
+    "check": "node --check src/capture-rexel.js && node --check src/selectors.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright": "^1.49.1"
+  }
+}

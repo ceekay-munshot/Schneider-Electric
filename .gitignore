@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Capture output (uploaded as a CI artifact, not committed)
+output/
+
+# Local credentials — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Playwright
+playwright-report/
+test-results/
+/.auth/
+*.har
+
+# Logs / OS cruft
+*.log
+.DS_Store
