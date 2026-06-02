@@ -305,32 +305,29 @@ async function login(page, creds) {
 // Search + pagination
 // ---------------------------------------------------------------------------
 
+// Graybar pages via a 0-indexed `page` query param. Append as a raw string so
+// the already-encoded `q` parameter is preserved exactly.
 function pageUrl(base, i) {
   if (i === 0) return base;
-  try {
-    const u = new URL(base);
-    u.searchParams.set(PAGE_PARAM, String(i));
-    u.hash = '';
-    return u.toString();
-  } catch {
-    return base + (base.includes('?') ? '&' : '?') + `${PAGE_PARAM}=${i}`;
-  }
+  const pathAndQuery = base.split('#')[0];
+  const sep = pathAndQuery.includes('?') ? '&' : '?';
+  return `${pathAndQuery}${sep}${PAGE_PARAM}=${i}`;
 }
 
-// Prices populate asynchronously into the price containers after the list
-// renders. Wait until a few of them actually show a currency amount.
-async function waitForPrices(page) {
-  await page
-    .waitForFunction(
-      () => {
-        const els = document.querySelectorAll('.js-productListing-price, .product-listing_product-exp__price');
-        let withPrice = 0;
-        for (const e of els) if (/[$£€]\s?\d|\d[\d,]*\.\d{2}/.test(e.textContent || '')) withPrice++;
-        return withPrice >= 3;
-      },
-      { timeout: DELAYS.priceWait },
-    )
-    .catch(() => {}); // proceed even if prices never populate
+// One-off diagnostic: fetch a single product's detail fragment — the same
+// endpoint the site calls when a row is expanded — to reveal exactly where
+// price / availability live. Uses the authenticated page session.
+async function fetchDetailSample(page, sku) {
+  try {
+    const res = await page.evaluate(async (s) => {
+      const r = await fetch(`/p/details/${s}`, { credentials: 'include' });
+      return { status: r.status, ct: r.headers.get('content-type') || '', body: (await r.text()).slice(0, 6000) };
+    }, sku);
+    await writeFile(path.join(OUTPUT_DIR, 'graybar-detail-sample.json'), JSON.stringify(res, null, 2));
+    log(`detail-sample: /p/details/${sku} -> ${res.status} ${res.ct} (${res.body.length} bytes saved)`);
+  } catch (e) {
+    debug('fetchDetailSample failed:', e?.message);
+  }
 }
 
 async function extractPage(page, capturedAt) {
@@ -499,8 +496,8 @@ async function main() {
           await jitter();
         }
         pagesVisited = i + 1;
-        await waitForPrices(page); // let async prices populate before reading
         const pageRows = await extractPage(page, capturedAt);
+        if (i === 0 && DEBUG && pageRows[0]?.sku) await fetchDetailSample(page, pageRows[0].sku);
         let added = 0;
         for (const p of pageRows) {
           const key = [p.sku, p.product_url, p.title].filter(Boolean).join('|');

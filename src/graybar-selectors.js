@@ -18,8 +18,8 @@ export const LOGIN_URL = `${BASE_URL}/login`;
 export const SEARCH_URL =
   'https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3AEaton%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ATripp+Lite+%28Eaton%29&text=ups&enablePartNumberSearch=';
 
-// Hybris pagination parameter (0-indexed). Page 2 => currentPage=1.
-export const PAGE_PARAM = 'currentPage';
+// Pagination query parameter, 0-indexed (confirmed: &page=2 renders page "3").
+export const PAGE_PARAM = 'page';
 
 // Substrings used to recognise JSON XHR/fetch responses that may carry product
 // data (Hybris OCC etc.). Matched case-insensitively against the response URL.
