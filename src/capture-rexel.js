@@ -200,21 +200,105 @@ async function findLoginForm(page) {
   return email; // possibly empty; caller handles
 }
 
+async function dismissOverlays(page) {
+  // Best-effort: clear cookie-consent / region overlays that can block the form.
+  const sels = [
+    '#onetrust-accept-btn-handler',
+    'button:has-text("Accept All")',
+    'button:has-text("Accept all")',
+    'button:has-text("Accept")',
+    'button:has-text("I Accept")',
+    'button:has-text("Allow all")',
+    'button:has-text("Got it")',
+    'button[aria-label*="accept" i]',
+    'button[aria-label*="close" i]',
+  ];
+  for (const s of sels) {
+    const b = page.locator(s).first();
+    if ((await b.count().catch(() => 0)) && (await b.isVisible().catch(() => false))) {
+      await b.click({ timeout: 3000 }).catch(() => {});
+      await sleep(500);
+    }
+  }
+}
+
+/**
+ * Capture login-page diagnostics to the artifact: a screenshot, the page HTML,
+ * and a full inventory of input/button/link controls (including those inside
+ * open shadow roots). Called ONLY before any credentials are entered, so no
+ * secret can appear in the screenshot or HTML. Logs attribute metadata + counts
+ * only — never any entered value.
+ */
+async function dumpLoginDiagnostics(page, label) {
+  try {
+    const pngPath = path.join(OUTPUT_DIR, `${label}.png`);
+    const htmlPath = path.join(OUTPUT_DIR, `${label}.html`);
+    const fieldsPath = path.join(OUTPUT_DIR, `${label}-controls.json`);
+    await page.screenshot({ path: pngPath, fullPage: true }).catch(() => {});
+    const html = await page.content().catch(() => '');
+    if (html) await writeFile(htmlPath, html);
+
+    const info = await page
+      .evaluate(() => {
+        const out = [];
+        const visit = (root) => {
+          for (const el of root.querySelectorAll('input, button, a[href], select, textarea')) {
+            const tag = el.tagName.toLowerCase();
+            out.push({
+              tag,
+              type: el.getAttribute('type'),
+              name: el.getAttribute('name'),
+              id: el.id || null,
+              placeholder: el.getAttribute('placeholder'),
+              autocomplete: el.getAttribute('autocomplete'),
+              ariaLabel: el.getAttribute('aria-label'),
+              text: tag === 'button' || tag === 'a' ? (el.textContent || '').trim().slice(0, 40) : null,
+              visible: !!(el.offsetParent || el.getClientRects().length),
+            });
+          }
+          for (const el of root.querySelectorAll('*')) if (el.shadowRoot) visit(el.shadowRoot);
+        };
+        visit(document);
+        return { url: location.href, title: document.title, controls: out };
+      })
+      .catch(() => ({ url: '', title: '', controls: [] }));
+    await writeFile(fieldsPath, JSON.stringify(info, null, 2));
+
+    const inputs = info.controls.filter((c) => c.tag === 'input');
+    const pwd = inputs.filter((c) => (c.type || '').toLowerCase() === 'password');
+    log(`login-diagnostic: landed on ${info.url} (title="${info.title}")`);
+    log(`login-diagnostic: ${info.controls.length} controls, ${inputs.length} inputs, ${pwd.length} password input(s)`);
+    // Attribute metadata only (controls are unfilled) — safe; this is what fixes selectors.
+    for (const c of inputs.slice(0, 15)) {
+      log(`  input type=${c.type} name=${c.name} id=${c.id} ph=${c.placeholder} aria=${c.ariaLabel} vis=${c.visible}`);
+    }
+    log(`login-diagnostic: wrote ${pngPath}, ${htmlPath}, ${fieldsPath}`);
+  } catch (e) {
+    debug('dumpLoginDiagnostics failed:', e?.message);
+  }
+}
+
 async function login(page, creds) {
   log('navigating to login…');
   await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: DELAYS.nav }).catch(() => {});
   await sleep(DELAYS.settle);
+  await dismissOverlays(page);
 
   let emailField = await findLoginForm(page);
   if (!(await emailField.count().catch(() => 0))) {
     // Fall back to the homepage and try to open login from there.
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: DELAYS.nav }).catch(() => {});
     await sleep(DELAYS.settle);
+    await dismissOverlays(page);
     emailField = await findLoginForm(page);
   }
   if (!(await emailField.count().catch(() => 0))) {
+    // Capture what the runner actually sees so selectors can be fixed precisely.
+    // Safe: no credentials have been entered at this point.
+    await dumpLoginDiagnostics(page, 'debug-login');
     return { ok: false, reason: 'login_form_not_found' };
   }
+  if (DEBUG) await dumpLoginDiagnostics(page, 'debug-login-found'); // empty form, pre-fill
 
   const passwordField = page.locator(SELECTORS.login.password).first();
   await emailField.fill(creds.email).catch(() => {}); // value never logged
