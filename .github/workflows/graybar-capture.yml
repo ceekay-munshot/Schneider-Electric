@@ -7,6 +7,10 @@ on:
         description: "Print counts & field-presence diagnostics only (never secrets)"
         type: boolean
         default: false
+      enrich_cap:
+        description: "Limit price enrichment to N products (blank = all). Use a small N to validate."
+        type: string
+        default: ""
   # Daily at 03:30 UTC (offset from the Rexel job).
   schedule:
     - cron: "30 3 * * *"
@@ -54,6 +58,7 @@ jobs:
       - name: Run Graybar capture
         env:
           DEBUG: ${{ inputs.debug }}
+          GRAYBAR_ENRICH_CAP: ${{ inputs.enrich_cap }}
         run: npm run capture:graybar
 
       - name: Upload capture artifacts

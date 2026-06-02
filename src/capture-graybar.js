@@ -47,6 +47,11 @@ const DELAYS = {
 };
 const RAW_CAP_BYTES = int(process.env.GRAYBAR_RAW_CAP_BYTES, 8_000_000);
 
+// Price/stock enrichment via the per-product detail JSON endpoint (/p/details).
+const ENRICH = !/^(0|false|no|off)$/i.test(process.env.GRAYBAR_ENRICH ?? '');
+const ENRICH_CAP = int(process.env.GRAYBAR_ENRICH_CAP, 0); // 0 = all products
+const ENRICH_DELAY = int(process.env.GRAYBAR_ENRICH_DELAY_MS, 600);
+
 const STATUS = {
   OK: 'ok',
   AUTH_FAILED_OR_PRICE_HIDDEN: 'auth_failed_or_price_hidden',
@@ -88,6 +93,7 @@ const COLUMNS = [
   ['category', 'category'],
   ['price', 'price'],
   ['availability', 'stock/availability'],
+  ['stock_level', 'stock level'],
   ['product_url', 'product URL'],
   ['captured_at', 'captured_at'],
 ];
@@ -388,6 +394,52 @@ async function extractPage(page, capturedAt) {
     .map((p) => ({ ...p, captured_at: capturedAt, _source: 'dom' }));
 }
 
+// Enrich each product with price + stock from /p/details/<sku> (clean JSON, the
+// same endpoint the site calls when a row is expanded). Conservatively paced;
+// uses the authenticated page session. Respects ENRICH_CAP (0 = all).
+async function enrichPrices(page, products) {
+  const targets = products.filter((p) => p.sku);
+  const limit = ENRICH_CAP > 0 ? Math.min(ENRICH_CAP, targets.length) : targets.length;
+  let withPrice = 0;
+  let errors = 0;
+  for (let i = 0; i < limit; i++) {
+    const p = targets[i];
+    try {
+      const d = await page.evaluate(async (sku) => {
+        const r = await fetch(`/p/details/${encodeURIComponent(sku)}`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        });
+        if (!r.ok) return { _status: r.status };
+        return await r.json();
+      }, p.sku);
+      if (d && !d._status) {
+        const pr = d.price || {};
+        p.price = pr.formattedValue ?? (pr.value != null ? String(pr.value) : p.price);
+        p.price_value = typeof pr.value === 'number' ? pr.value : null;
+        p.currency = pr.currencyIso ?? null;
+        const st = d.stock || {};
+        p.availability = st.stockLevelStatus?.code ?? p.availability;
+        p.stock_level = typeof st.stockLevel === 'number' ? st.stockLevel : null;
+        if (hasDigit(p.price)) withPrice++;
+      } else {
+        errors++;
+      }
+    } catch (e) {
+      errors++;
+      debug('enrich failed', p.sku, e?.message);
+    }
+    if ((i + 1) % 25 === 0 || i + 1 === limit) {
+      log(`enrich: ${i + 1}/${limit} (${withPrice} priced, ${errors} errors)`);
+    }
+    await sleep(ENRICH_DELAY + Math.floor(Math.random() * 300)); // conservative pacing
+  }
+  if (limit < targets.length) {
+    log(`enrich: CAPPED at ${limit} of ${targets.length} products (set GRAYBAR_ENRICH_CAP=0 for all)`);
+  }
+  return { withPrice, enriched: limit, errors, capped: limit < targets.length };
+}
+
 async function pageHasPrices(page) {
   const body = (await page.locator('body').innerText({ timeout: 8000 }).catch(() => '')) || '';
   const currencyAmounts = (body.match(/\$\s?\d[\d,]*(?:\.\d{2})?/g) || []).length;
@@ -466,6 +518,7 @@ async function main() {
   let pagesVisited = 0;
   let capped = false;
   let priceCheck = { priceElements: 0, currencyAmounts: 0 };
+  let enrichStats = { withPrice: 0, enriched: 0, errors: 0, capped: false };
 
   try {
     const loginRes = await login(page, creds);
@@ -516,13 +569,19 @@ async function main() {
       }
       products = dedupe(products);
 
-      const pricesPresent = priceCheck.currencyAmounts > 0 || products.some((p) => hasDigit(p.price));
-      if (!pricesPresent) {
+      // Enrich price + stock per product via the detail JSON endpoint.
+      if (ENRICH && products.length) {
+        log(`enriching price + stock for ${products.length} products via /p/details (paced)…`);
+        enrichStats = await enrichPrices(page, products);
+      }
+
+      const pricesPresent = products.some((p) => hasDigit(p.price));
+      if (!products.length) {
         status = STATUS.AUTH_FAILED_OR_PRICE_HIDDEN;
-        reason = loginRes.ok ? 'no_prices_visible' : `login_unconfirmed:${loginRes.reason || ''}`;
-      } else if (!products.length) {
+        reason = loginRes.ok ? 'no_products_extracted' : `login_unconfirmed:${loginRes.reason || ''}`;
+      } else if (!pricesPresent) {
         status = STATUS.AUTH_FAILED_OR_PRICE_HIDDEN;
-        reason = 'prices_present_but_no_products_extracted:selectors_need_tuning';
+        reason = ENRICH ? 'no_prices_after_enrichment' : 'prices_not_enriched';
       } else {
         status = STATUS.OK;
       }
@@ -545,6 +604,10 @@ async function main() {
       products: products.length,
       pages_visited: pagesVisited,
       page_cap_hit: capped,
+      enriched: enrichStats.enriched,
+      priced: enrichStats.withPrice,
+      enrich_errors: enrichStats.errors,
+      enrich_capped: enrichStats.capped,
       currency_amounts_on_first_page: priceCheck.currencyAmounts,
       json_payloads_captured: rawPayloads.length,
     },
@@ -562,7 +625,7 @@ async function main() {
     await writeFile(path.join(OUTPUT_DIR, `graybar-raw-responses-${stamp}.json`), JSON.stringify(rawPayloads, null, 2));
   }
 
-  log(`status=${status}${reason ? ` reason=${reason}` : ''} products=${products.length} pages=${pagesVisited}${capped ? ' (PAGE CAP HIT)' : ''}`);
+  log(`status=${status}${reason ? ` reason=${reason}` : ''} products=${products.length} priced=${enrichStats.withPrice} pages=${pagesVisited}${capped ? ' (PAGE CAP HIT)' : ''}`);
   log(`price-signal: dom_price_elements=${priceCheck.priceElements} currency_amounts_on_first_page=${priceCheck.currencyAmounts}`);
   log(`wrote: ${jsonPath}, ${latestPath}, ${csvPath}`);
   if (DEBUG) {
