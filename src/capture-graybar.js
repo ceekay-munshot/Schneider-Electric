@@ -42,6 +42,7 @@ const DELAYS = {
   max: int(process.env.GRAYBAR_MAX_DELAY_MS, 3200),
   nav: int(process.env.GRAYBAR_NAV_TIMEOUT_MS, 45000),
   settle: int(process.env.GRAYBAR_SETTLE_MS, 3000),
+  priceWait: int(process.env.GRAYBAR_PRICE_WAIT_MS, 20000),
   maxPages: int(process.env.GRAYBAR_MAX_PAGES, 90),
 };
 const RAW_CAP_BYTES = int(process.env.GRAYBAR_RAW_CAP_BYTES, 8_000_000);
@@ -316,6 +317,22 @@ function pageUrl(base, i) {
   }
 }
 
+// Prices populate asynchronously into the price containers after the list
+// renders. Wait until a few of them actually show a currency amount.
+async function waitForPrices(page) {
+  await page
+    .waitForFunction(
+      () => {
+        const els = document.querySelectorAll('.js-productListing-price, .product-listing_product-exp__price');
+        let withPrice = 0;
+        for (const e of els) if (/[$£€]\s?\d|\d[\d,]*\.\d{2}/.test(e.textContent || '')) withPrice++;
+        return withPrice >= 3;
+      },
+      { timeout: DELAYS.priceWait },
+    )
+    .catch(() => {}); // proceed even if prices never populate
+}
+
 async function extractPage(page, capturedAt) {
   const sel = SELECTORS.product;
   const cards = page.locator(sel.card);
@@ -339,16 +356,31 @@ async function extractPage(page, capturedAt) {
           return h;
         }
       };
-      return els.map((el) => ({
-        title: txt(el, s.title),
-        brand: txt(el, s.brand),
-        sku: txt(el, s.sku),
-        mfr: txt(el, s.mfr),
-        category: txt(el, s.category),
-        price: txt(el, s.price),
-        availability: txt(el, s.availability),
-        product_url: href(el, s.link),
-      }));
+      return els.map((el) => {
+        // Map "SKU" / "MFR #" label/value pairs.
+        const pairs = {};
+        el.querySelectorAll(s.labelPair).forEach((d) => {
+          const l = d.querySelector(s.label);
+          const v = d.querySelector(s.value);
+          if (l && v) {
+            const key = (l.innerText || l.textContent || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+            const val = (v.innerText || v.textContent || '').trim();
+            if (key && val) pairs[key] = val;
+          }
+        });
+        const url = href(el, s.link);
+        const skuFromUrl = url && (url.match(/\/p\/(\w+)/) || [])[1];
+        return {
+          title: txt(el, s.title),
+          brand: txt(el, s.brand),
+          sku: pairs.sku || skuFromUrl || null,
+          mfr: pairs.mfr || pairs.mfrno || null,
+          category: null,
+          price: txt(el, s.price),
+          availability: txt(el, s.availability),
+          product_url: url,
+        };
+      });
     }, sel)
     .catch((e) => {
       debug('extractPage evaluateAll failed:', e?.message);
@@ -467,6 +499,7 @@ async function main() {
           await jitter();
         }
         pagesVisited = i + 1;
+        await waitForPrices(page); // let async prices populate before reading
         const pageRows = await extractPage(page, capturedAt);
         let added = 0;
         for (const p of pageRows) {

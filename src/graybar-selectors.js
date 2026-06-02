@@ -34,6 +34,11 @@ export const API_HINTS = [
   'availability',
   'inventory',
   'catalog',
+  'p/details',
+  '/details/',
+  'storestock',
+  'productlisting',
+  'getprice',
 ];
 
 export const SELECTORS = {
@@ -62,21 +67,23 @@ export const SELECTORS = {
   // When signed in, Graybar shows an account menu like "<First>'s Menu".
   account: 'a:has-text("Menu"), a:has-text("Sign Out"), a:has-text("Log Out"), [class*="account" i]',
 
-  // Product result-row selectors (comma-separated candidate lists; first match
-  // within each row wins). All fields optional -> null when absent.
+  // Product result-row selectors — confirmed against the authenticated search
+  // page (SAP Hybris "product-listing_*" markup). SKU + MFR # come from
+  // label/value pairs and are resolved in the extractor (capture-graybar.js).
   product: {
-    card:
-      '[class*="product-tile" i], [class*="productListItem" i], [class*="product-item" i], [class*="search-result" i], li[class*="product" i], article[class*="product" i], [data-product-code], [data-product-id]',
-    title:
-      '[class*="product-title" i] a, a[class*="product-name" i], [class*="productName" i] a, h2 a, h3 a, a[href*="/product/" i]',
-    brand: '[class*="brand" i], [class*="manufacturer" i], [class*="vendor" i]',
-    sku: '[class*="sku" i], [class*="product-code" i], [data-product-code], [class*="materialNumber" i]',
-    mfr: '[class*="mfr" i], [class*="mpn" i], [class*="manufacturerPart" i], [class*="model" i], [class*="catalog" i]',
-    category: '[class*="category" i], [class*="breadcrumb" i]',
-    price: '[class*="price" i], [data-price], [itemprop="price"], [class*="Price"]',
+    card: '.js-product-list-item, .product-listing_product-wrapper, .product__list--item',
+    title: '.product-listing_product-name .title a, .product-listing_product-name a, h3.title a',
+    brand: '.product-listing_product-manufacturer .name, .product-listing_product-manufacturer',
+    // SKU/MFR are label/value pairs; the extractor maps them by label text.
+    labelPair: '.product-listing_product-detail, .product-listing_product-exp__group',
+    label: '.product-listing_product-label',
+    value: '.product-listing_product-value',
+    category: '',
+    // Prices populate asynchronously into these containers after page load.
+    price: '.js-productListing-price, .product-listing_product-exp__price',
     availability:
-      '[class*="availab" i], [class*="stock" i], [class*="inventory" i], [class*="in-stock" i]',
-    link: 'a[href*="/product/" i], a[href*="product" i], a[href]',
+      '.js-productListing-availability, .product-listing_product-exp__availability, .js-productList-storeStock, .product-listing_product-exp__stock',
+    link: '.product-listing_product-name a, .product-listing_product-image a, a[href*="/p/"]',
   },
 
   // Pager (to advance through result pages if URL paging needs a fallback).
