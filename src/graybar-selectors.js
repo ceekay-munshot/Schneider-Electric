@@ -46,10 +46,14 @@ export const SELECTORS = {
       'a[href*="login" i]',
       '[data-testid*="login" i]',
     ],
+    // Target the Hybris login field (j_username) specifically. NOTE: the page
+    // also has a Pardot marketing newsletter field input[type=email]
+    // (name=pardot_email) — we must NOT match that, so the generic email
+    // selectors are intentionally excluded here.
     email:
-      'input[type="email"], input[name*="email" i], input[id*="email" i], input[name="j_username"], input[autocomplete="username"], input[name="username"], input[placeholder*="email" i]',
+      'input#j_username, input[name="j_username"], input[autocomplete="username"], input[type="text"][name="username"]',
     password:
-      'input[type="password"], input[name="j_password"], input[name*="pass" i], input[id*="pass" i], input[autocomplete="current-password"]',
+      'input#j_password, input[name="j_password"], input[type="password"]:not([name="pardot_password"])',
     submit:
       'button[type="submit"], input[type="submit"], button:has-text("Sign In"), button:has-text("Log In"), button:has-text("Login")',
   },

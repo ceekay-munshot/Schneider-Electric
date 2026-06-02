@@ -176,8 +176,10 @@ async function dismissOverlays(page) {
   }
 }
 
-// Called ONLY before credentials are entered, so no secret can appear.
-async function dumpLoginDiagnostics(page, label) {
+// For login: called ONLY before credentials are entered, so no secret can
+// appear. Also reused for the (post-login) search page to capture its HTML for
+// product-selector tuning.
+async function dumpDiagnostics(page, label) {
   try {
     const pngPath = path.join(OUTPUT_DIR, `${label}.png`);
     const htmlPath = path.join(OUTPUT_DIR, `${label}.html`);
@@ -211,8 +213,8 @@ async function dumpLoginDiagnostics(page, label) {
     await writeFile(fieldsPath, JSON.stringify(info, null, 2));
     const inputs = info.controls.filter((c) => c.tag === 'input');
     const pwd = inputs.filter((c) => (c.type || '').toLowerCase() === 'password');
-    log(`login-diagnostic: landed on ${info.url} (title="${info.title}")`);
-    log(`login-diagnostic: ${info.controls.length} controls, ${inputs.length} inputs, ${pwd.length} password input(s)`);
+    log(`diagnostic[${label}]: landed on ${info.url} (title="${info.title}")`);
+    log(`diagnostic[${label}]: ${info.controls.length} controls, ${inputs.length} inputs, ${pwd.length} password input(s)`);
     for (const c of inputs.slice(0, 15)) {
       log(`  input type=${c.type} name=${c.name} id=${c.id} ph=${c.placeholder} aria=${c.ariaLabel} vis=${c.visible}`);
     }
@@ -250,10 +252,10 @@ async function login(page, creds) {
     emailField = await findLoginForm(page);
   }
   if (!(await emailField.count().catch(() => 0))) {
-    await dumpLoginDiagnostics(page, 'graybar-debug-login'); // safe: no creds entered yet
+    await dumpDiagnostics(page, 'graybar-debug-login'); // safe: no creds entered yet
     return { ok: false, reason: 'login_form_not_found' };
   }
-  if (DEBUG) await dumpLoginDiagnostics(page, 'graybar-debug-login-found'); // empty form, pre-fill
+  if (DEBUG) await dumpDiagnostics(page, 'graybar-debug-login-found'); // empty form, pre-fill
 
   const passwordField = page.locator(SELECTORS.login.password).first();
   await emailField.fill(creds.email).catch(() => {}); // value never logged
@@ -261,12 +263,29 @@ async function login(page, creds) {
   await passwordField.fill(creds.password).catch(() => {}); // value never logged
   await jitter();
 
-  const submit = page.locator(SELECTORS.login.submit).first();
+  // Submit by pressing Enter in the password field (reliably posts the Hybris
+  // login form including its CSRF token); fall back to a submit button if the
+  // password field is still showing afterwards.
   await Promise.all([
     page.waitForLoadState('networkidle', { timeout: DELAYS.nav }).catch(() => {}),
-    submit.click({ timeout: 10000 }).catch(() => {}),
+    passwordField.press('Enter').catch(() => {}),
   ]);
   await sleep(DELAYS.settle);
+  const stillOnForm = await page
+    .locator(SELECTORS.login.password)
+    .first()
+    .isVisible({ timeout: 2000 })
+    .catch(() => false);
+  if (stillOnForm) {
+    const submit = page.locator(SELECTORS.login.submit).first();
+    if (await submit.count().catch(() => 0)) {
+      await Promise.all([
+        page.waitForLoadState('networkidle', { timeout: DELAYS.nav }).catch(() => {}),
+        submit.click({ timeout: 10000 }).catch(() => {}),
+      ]);
+      await sleep(DELAYS.settle);
+    }
+  }
 
   const blockers = await detectBlockers(page);
   if (blockers.length) {
@@ -433,6 +452,9 @@ async function main() {
       await dismissOverlays(page);
 
       priceCheck = await pageHasPrices(page);
+      // Capture the (post-login) search page so its real product-card structure
+      // can be read off and the selectors finalised.
+      if (DEBUG) await dumpDiagnostics(page, 'graybar-debug-search');
 
       // Paginate, accumulating de-duplicated rows. Stop when a page yields no
       // new rows (or the cap is hit). Conservative pacing between pages.
