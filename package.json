@@ -13,7 +13,9 @@
     "preview": "vite preview --host 0.0.0.0",
     "capture:rexel": "node src/capture-rexel.js",
     "capture:rexel:debug": "node src/capture-rexel.js --debug",
-    "check": "node --check src/capture-rexel.js && node --check src/selectors.js",
+    "capture:graybar": "node src/capture-graybar.js",
+    "capture:graybar:debug": "node src/capture-graybar.js --debug",
+    "check": "node --check src/capture-rexel.js && node --check src/selectors.js && node --check src/capture-graybar.js && node --check src/graybar-selectors.js",
     "test": "node --test"
   },
   "dependencies": {

@@ -1,0 +1,66 @@
+name: Graybar UPS Capture
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Print counts & field-presence diagnostics only (never secrets)"
+        type: boolean
+        default: false
+  # Daily at 03:30 UTC (offset from the Rexel job).
+  schedule:
+    - cron: "30 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graybar-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Map GitHub secrets -> env vars with the EXACT names the scraper reads.
+    env:
+      GRAYBAR_EMAIL: ${{ secrets.GRAYBAR_EMAIL }}
+      GRAYBAR_PASSWORD: ${{ secrets.GRAYBAR_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Fail clearly if either secret is missing — without printing values.
+      - name: Validate secrets are present
+        run: |
+          test -n "$GRAYBAR_EMAIL" || { echo "Missing GRAYBAR_EMAIL"; exit 1; }
+          test -n "$GRAYBAR_PASSWORD" || { echo "Missing GRAYBAR_PASSWORD"; exit 1; }
+          echo "Graybar secrets are present."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Graybar capture
+        env:
+          DEBUG: ${{ inputs.debug }}
+        run: npm run capture:graybar
+
+      - name: Upload capture artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graybar-ups-capture-${{ github.run_id }}
+          path: output/
+          if-no-files-found: warn
+          retention-days: 30
