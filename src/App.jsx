@@ -69,6 +69,9 @@ function cell(v) {
   if (v === null || v === undefined || v === '') return '—';
   return String(v);
 }
+function hasPrice(p) {
+  return (typeof p?.price_value === 'number' && p.price_value > 0) || (p?.price != null && /\d/.test(String(p.price)));
+}
 
 // ---- small pieces ---------------------------------------------------------
 
@@ -177,8 +180,22 @@ function Overview({ loading, usable, data, catName }) {
   );
 }
 
-function Universe({ loading, usable, data, catName, filter, setFilter, companies, setCompanies, companyCounts }) {
-  const rows = useMemo(() => {
+function Universe({
+  loading,
+  usable,
+  data,
+  catName,
+  filter,
+  setFilter,
+  companies,
+  setCompanies,
+  companyCounts,
+  priceFilter,
+  setPriceFilter,
+}) {
+  // brand + text filtered (before the price filter), so the price pills can show
+  // accurate with/without-price counts for the current selection.
+  const baseRows = useMemo(() => {
     if (!usable) return [];
     let r = data.products;
     if (companies.length) r = r.filter((p) => companies.includes(companyOf(p.brand)));
@@ -192,6 +209,13 @@ function Universe({ loading, usable, data, catName, filter, setFilter, companies
     }
     return r;
   }, [usable, data, filter, companies]);
+  const pricedCount = useMemo(() => baseRows.filter(hasPrice).length, [baseRows]);
+  const rows =
+    priceFilter === 'priced'
+      ? baseRows.filter(hasPrice)
+      : priceFilter === 'unpriced'
+        ? baseRows.filter((p) => !hasPrice(p))
+        : baseRows;
 
   if (loading) return <div className="card muted">Loading latest capture…</div>;
   if (!usable) return <EmptyState data={data} />;
@@ -232,6 +256,23 @@ function Universe({ loading, usable, data, catName, filter, setFilter, companies
             Clear
           </button>
         )}
+      </div>
+
+      <div className="brandbar">
+        <span className="brandbar-label">Price</span>
+        {[
+          ['all', 'All', baseRows.length],
+          ['priced', 'With price', pricedCount],
+          ['unpriced', 'No price', baseRows.length - pricedCount],
+        ].map(([key, label, n]) => (
+          <button
+            key={key}
+            className={`brandpill ${priceFilter === key ? 'on' : ''}`}
+            onClick={() => setPriceFilter(key)}
+          >
+            {label} <span className="brandpill-n">{n}</span>
+          </button>
+        ))}
       </div>
 
       <div className="table-wrap">
@@ -315,6 +356,7 @@ export default function App() {
   const [tab, setTab] = useState('Overview');
   const [filter, setFilter] = useState('');
   const [companies, setCompanies] = useState([]);
+  const [priceFilter, setPriceFilter] = useState('all'); // all | priced | unpriced
   const [activeCat, setActiveCat] = useState('ups');
   const [busy, setBusy] = useState(false);
 
@@ -368,6 +410,7 @@ export default function App() {
     setTab('Overview');
     setFilter('');
     setCompanies([]);
+    setPriceFilter('all');
   };
 
   const downloadXlsx = useCallback(async () => {
@@ -375,6 +418,8 @@ export default function App() {
     const XLSX = await import('xlsx');
     let rows = data.products;
     if (companies.length) rows = rows.filter((p) => companies.includes(companyOf(p.brand)));
+    if (priceFilter === 'priced') rows = rows.filter(hasPrice);
+    else if (priceFilter === 'unpriced') rows = rows.filter((p) => !hasPrice(p));
     const sheet = rows.map((p) => ({
       Product: p.title ?? '',
       Brand: p.brand ?? '',
@@ -393,7 +438,7 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, ws, 'UPS');
     const stamp = (data.captured_at || '').slice(0, 10) || 'latest';
     XLSX.writeFile(wb, `schneider-${activeCat}-${stamp}.xlsx`);
-  }, [usable, data, companies, activeCat]);
+  }, [usable, data, companies, priceFilter, activeCat]);
 
   return (
     <div className="app">
@@ -479,6 +524,8 @@ export default function App() {
                     companies={companies}
                     setCompanies={setCompanies}
                     companyCounts={companyCounts}
+                    priceFilter={priceFilter}
+                    setPriceFilter={setPriceFilter}
                   />
                 )}
                 {tab === 'Methodology' && <Methodology />}
