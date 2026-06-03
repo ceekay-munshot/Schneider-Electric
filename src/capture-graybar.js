@@ -91,8 +91,10 @@ const COLUMNS = [
   ['brand', 'brand/manufacturer'],
   ['sku', 'SKU'],
   ['mfr', 'MFR #'],
+  ['upc', 'UPC'],
   ['category', 'category'],
   ['price', 'price'],
+  ['unit_of_measure', 'unit of measure'],
   ['availability', 'stock/availability'],
   ['stock_level', 'stock level'],
   ['product_url', 'product URL'],
@@ -441,6 +443,13 @@ async function enrichPrices(page, products) {
         const st = d.stock || {};
         p.availability = st.stockLevelStatus?.code ?? p.availability;
         p.stock_level = typeof st.stockLevel === 'number' ? st.stockLevel : null;
+        // Extra fields available for free in the same detail response.
+        p.upc = d.upc ?? p.upc ?? null;
+        p.unit_of_measure = d.defaultUom ?? d.commerceAltUomCode ?? p.unit_of_measure ?? null;
+        if (!p.category && Array.isArray(d.categories) && d.categories.length) {
+          p.category = d.categories.map((c) => c && c.name).filter(Boolean).join(' / ') || null;
+        }
+        if (!p.mfr) p.mfr = d.manPartNum ?? null;
         if (hasDigit(p.price)) withPrice++;
       } else {
         errors++;
