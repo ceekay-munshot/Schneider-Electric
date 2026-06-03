@@ -72,6 +72,13 @@ function cell(v) {
 function hasPrice(p) {
   return (typeof p?.price_value === 'number' && p.price_value > 0) || (p?.price != null && /\d/.test(String(p.price)));
 }
+function inStock(p) {
+  if (typeof p?.stock_level === 'number') return p.stock_level > 0;
+  const a = String(p?.availability || '').toLowerCase();
+  if (!a) return false;
+  if (a.includes('outofstock') || a.includes('out of stock')) return false;
+  return /in\s?stock|low\s?stock/.test(a);
+}
 
 // ---- small pieces ---------------------------------------------------------
 
@@ -204,9 +211,11 @@ function Universe({
   companyCounts,
   priceFilter,
   setPriceFilter,
+  stockFilter,
+  setStockFilter,
 }) {
-  // brand + text filtered (before the price filter), so the price pills can show
-  // accurate with/without-price counts for the current selection.
+  // brand + text filtered (before the price/stock filters), so the pills can show
+  // accurate counts for the current selection.
   const baseRows = useMemo(() => {
     if (!usable) return [];
     let r = data.products;
@@ -222,12 +231,16 @@ function Universe({
     return r;
   }, [usable, data, filter, companies]);
   const pricedCount = useMemo(() => baseRows.filter(hasPrice).length, [baseRows]);
-  const rows =
-    priceFilter === 'priced'
-      ? baseRows.filter(hasPrice)
-      : priceFilter === 'unpriced'
-        ? baseRows.filter((p) => !hasPrice(p))
-        : baseRows;
+  const inStockCount = useMemo(() => baseRows.filter(inStock).length, [baseRows]);
+  // price + stock filters AND together (and with brand/text above).
+  const rows = useMemo(() => {
+    let r = baseRows;
+    if (priceFilter === 'priced') r = r.filter(hasPrice);
+    else if (priceFilter === 'unpriced') r = r.filter((p) => !hasPrice(p));
+    if (stockFilter === 'instock') r = r.filter(inStock);
+    else if (stockFilter === 'outstock') r = r.filter((p) => !inStock(p));
+    return r;
+  }, [baseRows, priceFilter, stockFilter]);
 
   if (loading) return <div className="card muted">Loading latest capture…</div>;
   if (!usable) return <EmptyState data={data} />;
@@ -281,6 +294,23 @@ function Universe({
             key={key}
             className={`brandpill ${priceFilter === key ? 'on' : ''}`}
             onClick={() => setPriceFilter(key)}
+          >
+            {label} <span className="brandpill-n">{n}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="brandbar">
+        <span className="brandbar-label">Stock</span>
+        {[
+          ['all', 'All', baseRows.length],
+          ['instock', 'In stock', inStockCount],
+          ['outstock', 'Out of stock', baseRows.length - inStockCount],
+        ].map(([key, label, n]) => (
+          <button
+            key={key}
+            className={`brandpill ${stockFilter === key ? 'on' : ''}`}
+            onClick={() => setStockFilter(key)}
           >
             {label} <span className="brandpill-n">{n}</span>
           </button>
@@ -369,6 +399,7 @@ export default function App() {
   const [filter, setFilter] = useState('');
   const [companies, setCompanies] = useState([]);
   const [priceFilter, setPriceFilter] = useState('all'); // all | priced | unpriced
+  const [stockFilter, setStockFilter] = useState('all'); // all | instock | outstock
   const [activeCat, setActiveCat] = useState('ups');
   const [busy, setBusy] = useState(false);
 
@@ -423,6 +454,7 @@ export default function App() {
     setFilter('');
     setCompanies([]);
     setPriceFilter('all');
+    setStockFilter('all');
   };
 
   const downloadXlsx = useCallback(async () => {
@@ -432,6 +464,8 @@ export default function App() {
     if (companies.length) rows = rows.filter((p) => companies.includes(companyOf(p.brand)));
     if (priceFilter === 'priced') rows = rows.filter(hasPrice);
     else if (priceFilter === 'unpriced') rows = rows.filter((p) => !hasPrice(p));
+    if (stockFilter === 'instock') rows = rows.filter(inStock);
+    else if (stockFilter === 'outstock') rows = rows.filter((p) => !inStock(p));
     const sheet = rows.map((p) => ({
       Product: p.title ?? '',
       Brand: p.brand ?? '',
@@ -450,7 +484,7 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, ws, 'UPS');
     const stamp = (data.captured_at || '').slice(0, 10) || 'latest';
     XLSX.writeFile(wb, `schneider-${activeCat}-${stamp}.xlsx`);
-  }, [usable, data, companies, priceFilter, activeCat]);
+  }, [usable, data, companies, priceFilter, stockFilter, activeCat]);
 
   return (
     <div className="app">
@@ -545,6 +579,8 @@ export default function App() {
                       companyCounts={companyCounts}
                       priceFilter={priceFilter}
                       setPriceFilter={setPriceFilter}
+                      stockFilter={stockFilter}
+                      setStockFilter={setStockFilter}
                     />
                   </div>
                   <CaptureSidebar data={data} catName={cat.name} />
