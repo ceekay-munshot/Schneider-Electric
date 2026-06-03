@@ -5,7 +5,7 @@ import { CATEGORIES, ALL_CATEGORIES, categoryBySlug, COMPANIES, companyOf } from
 // data/ups.json, data/busway.json). Absent/failed file -> safe empty state.
 const LIVE_CATEGORIES = ALL_CATEGORIES.filter((c) => c.status === 'live');
 
-const TABS = ['Pricing', 'Methodology'];
+const TABS = ['Table', 'Overview', 'Methodology'];
 
 const COLUMNS = [
   ['title', 'Product'],
@@ -172,30 +172,22 @@ function PriceTrends() {
   );
 }
 
-// Compact secondary info, lives in the right side rail next to the table.
-function CaptureSidebar({ data, catName }) {
+// Overview tab: trends banner + capture stat cards + field coverage (full width).
+function Overview({ data, catName }) {
   return (
-    <aside className="data-side">
-      <section className="card side-card">
-        <h3>Capture</h3>
-        <dl className="kv">
-          <dt>Category</dt>
-          <dd>{catName}</dd>
-          <dt>Status</dt>
-          <dd>
-            <span className="ok-pill">{data.status}</span>
-          </dd>
-          <dt>Captured</dt>
-          <dd>{fmtUTC(data.captured_at)}</dd>
-          <dt>Rows</dt>
-          <dd>{num(data.rows_this_scrape)}</dd>
-        </dl>
+    <>
+      <PriceTrends />
+      <section className="stats">
+        <StatCard label="Category" value={catName} />
+        <StatCard label="Capture status" value={<span className="ok-pill">{data.status}</span>} />
+        <StatCard label="Captured at" value={fmtUTC(data.captured_at)} />
+        <StatCard label="Rows this scrape" value={num(data.rows_this_scrape)} />
       </section>
-      <section className="card side-card">
-        <h3>Field coverage</h3>
+      <section className="card">
+        <h3>Field coverage · latest capture</h3>
         <FieldCoverage presence={data.field_presence} total={data.rows_this_scrape} />
       </section>
-    </aside>
+    </>
   );
 }
 
@@ -395,7 +387,7 @@ function Methodology() {
 
 export default function App() {
   const [dataMap, setDataMap] = useState({}); // slug -> raw json | null | undefined(unloaded)
-  const [tab, setTab] = useState('Pricing');
+  const [tab, setTab] = useState('Table');
   const [filter, setFilter] = useState('');
   const [companies, setCompanies] = useState([]);
   const [priceFilter, setPriceFilter] = useState('all'); // all | priced | unpriced
@@ -450,11 +442,11 @@ export default function App() {
 
   const selectCategory = (slug) => {
     setActiveCat(slug);
-    setTab('Pricing');
     setFilter('');
     setCompanies([]);
     setPriceFilter('all');
     setStockFilter('all');
+    setTab('Table');
   };
 
   const downloadXlsx = useCallback(async () => {
@@ -562,30 +554,24 @@ export default function App() {
               <div className="card muted">Loading latest capture…</div>
             ) : !usable ? (
               <EmptyState data={data} />
+            ) : tab === 'Overview' ? (
+              <Overview data={data} catName={cat.name} />
             ) : (
-              <>
-                <PriceTrends />
-                <div className="data-split">
-                  <div className="data-main">
-                    <Universe
-                      loading={loading}
-                      usable={usable}
-                      data={data}
-                      catName={cat.name}
-                      filter={filter}
-                      setFilter={setFilter}
-                      companies={companies}
-                      setCompanies={setCompanies}
-                      companyCounts={companyCounts}
-                      priceFilter={priceFilter}
-                      setPriceFilter={setPriceFilter}
-                      stockFilter={stockFilter}
-                      setStockFilter={setStockFilter}
-                    />
-                  </div>
-                  <CaptureSidebar data={data} catName={cat.name} />
-                </div>
-              </>
+              <Universe
+                loading={loading}
+                usable={usable}
+                data={data}
+                catName={cat.name}
+                filter={filter}
+                setFilter={setFilter}
+                companies={companies}
+                setCompanies={setCompanies}
+                companyCounts={companyCounts}
+                priceFilter={priceFilter}
+                setPriceFilter={setPriceFilter}
+                stockFilter={stockFilter}
+                setStockFilter={setStockFilter}
+              />
             )}
           </main>
         </div>
