@@ -25,7 +25,7 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     # Map GitHub secrets -> env vars with the EXACT names the scraper reads.
     env:

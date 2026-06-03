@@ -50,7 +50,8 @@ const RAW_CAP_BYTES = int(process.env.GRAYBAR_RAW_CAP_BYTES, 8_000_000);
 // Price/stock enrichment via the per-product detail JSON endpoint (/p/details).
 const ENRICH = !/^(0|false|no|off)$/i.test(process.env.GRAYBAR_ENRICH ?? '');
 const ENRICH_CAP = int(process.env.GRAYBAR_ENRICH_CAP, 0); // 0 = all products
-const ENRICH_DELAY = int(process.env.GRAYBAR_ENRICH_DELAY_MS, 600);
+const ENRICH_DELAY = int(process.env.GRAYBAR_ENRICH_DELAY_MS, 600); // pause between batches
+const ENRICH_CONC = int(process.env.GRAYBAR_ENRICH_CONC, 6); // concurrent detail fetches per batch
 
 const STATUS = {
   OK: 'ok',
@@ -400,20 +401,39 @@ async function extractPage(page, capturedAt) {
 async function enrichPrices(page, products) {
   const targets = products.filter((p) => p.sku);
   const limit = ENRICH_CAP > 0 ? Math.min(ENRICH_CAP, targets.length) : targets.length;
+  const slice = targets.slice(0, limit);
   let withPrice = 0;
   let errors = 0;
-  for (let i = 0; i < limit; i++) {
-    const p = targets[i];
+  let done = 0;
+  // Fetch in small concurrent batches (one page.evaluate per batch) so the run
+  // finishes within the job timeout. Conservative pause between batches.
+  for (let i = 0; i < slice.length; i += ENRICH_CONC) {
+    const chunk = slice.slice(i, i + ENRICH_CONC);
+    let results;
     try {
-      const d = await page.evaluate(async (sku) => {
-        const r = await fetch(`/p/details/${encodeURIComponent(sku)}`, {
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-        });
-        if (!r.ok) return { _status: r.status };
-        return await r.json();
-      }, p.sku);
-      if (d && !d._status) {
+      results = await page.evaluate(async (skus) => {
+        return await Promise.all(
+          skus.map(async (sku) => {
+            try {
+              const r = await fetch(`/p/details/${encodeURIComponent(sku)}`, {
+                credentials: 'include',
+                headers: { Accept: 'application/json' },
+              });
+              if (!r.ok) return { _status: r.status };
+              return await r.json();
+            } catch (e) {
+              return { _err: String((e && e.message) || e) };
+            }
+          }),
+        );
+      }, chunk.map((p) => p.sku));
+    } catch (e) {
+      debug('enrich batch evaluate failed:', e?.message);
+      results = chunk.map(() => ({ _err: 'evaluate_failed' }));
+    }
+    chunk.forEach((p, j) => {
+      const d = results[j];
+      if (d && !d._status && !d._err) {
         const pr = d.price || {};
         p.price = pr.formattedValue ?? (pr.value != null ? String(pr.value) : p.price);
         p.price_value = typeof pr.value === 'number' ? pr.value : null;
@@ -425,19 +445,17 @@ async function enrichPrices(page, products) {
       } else {
         errors++;
       }
-    } catch (e) {
-      errors++;
-      debug('enrich failed', p.sku, e?.message);
+      done++;
+    });
+    if (done % 60 === 0 || done >= slice.length) {
+      log(`enrich: ${done}/${slice.length} (${withPrice} priced, ${errors} errors)`);
     }
-    if ((i + 1) % 25 === 0 || i + 1 === limit) {
-      log(`enrich: ${i + 1}/${limit} (${withPrice} priced, ${errors} errors)`);
-    }
-    await sleep(ENRICH_DELAY + Math.floor(Math.random() * 300)); // conservative pacing
+    await sleep(ENRICH_DELAY + Math.floor(Math.random() * 200)); // pause between batches
   }
   if (limit < targets.length) {
     log(`enrich: CAPPED at ${limit} of ${targets.length} products (set GRAYBAR_ENRICH_CAP=0 for all)`);
   }
-  return { withPrice, enriched: limit, errors, capped: limit < targets.length };
+  return { withPrice, enriched: done, errors, capped: limit < targets.length };
 }
 
 async function pageHasPrices(page) {
