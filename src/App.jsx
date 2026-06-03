@@ -5,7 +5,7 @@ import { CATEGORIES, ALL_CATEGORIES, categoryBySlug, COMPANIES, companyOf } from
 // data/ups.json, data/busway.json). Absent/failed file -> safe empty state.
 const LIVE_CATEGORIES = ALL_CATEGORIES.filter((c) => c.status === 'live');
 
-const TABS = ['Table', 'Overview', 'Methodology'];
+const TABS = ['Overview', 'Table', 'Methodology'];
 
 const COLUMNS = [
   ['title', 'Product'],
