@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CATEGORIES, ALL_CATEGORIES, categoryBySlug, COMPANIES, companyOf } from './categories.js';
 
-// Where the dashboard looks for capture data. A future GitHub Actions step can
-// copy the scraper's latest successful capture to public/data/latest-capture.json.
-// If the file is absent, the UI shows a safe empty state — it never fabricates data.
+// A future GitHub Actions step can copy the scraper's latest successful capture
+// to public/data/latest-capture.json. If the file is absent, the UI shows a safe
+// empty state — it never fabricates data.
 const DATA_URL = `${import.meta.env.BASE_URL}data/latest-capture.json`;
 
 const TABS = ['Overview', 'Product Universe', 'Methodology'];
 
-// Canonical product columns (matches the scraper's output schema).
 const COLUMNS = [
   ['title', 'Product'],
   ['brand', 'Brand'],
@@ -40,8 +40,6 @@ function normalize(raw) {
   };
 }
 
-// A capture is "usable" only when login succeeded and real rows came back.
-// Anything else (no file, auth_failed_or_price_hidden, empty) -> empty state.
 function isUsable(d) {
   return !!d && d.status === 'ok' && Array.isArray(d.products) && d.products.length > 0;
 }
@@ -60,7 +58,7 @@ function freshness(iso, usable) {
   if (Number.isNaN(t)) return { label: 'NO DATA', tone: 'none' };
   const hrs = Math.max(0, (Date.now() - t) / 3.6e6);
   const rel = hrs < 1 ? `${Math.round(hrs * 60)}M AGO` : hrs < 48 ? `${Math.round(hrs)}H AGO` : `${Math.round(hrs / 24)}D AGO`;
-  const tone = hrs <= 26 ? 'fresh' : hrs <= 24 * 7 ? 'aging' : 'stale';
+  const tone = hrs <= 24 * 8 ? 'fresh' : hrs <= 24 * 16 ? 'aging' : 'stale';
   const word = tone === 'fresh' ? 'FRESH' : tone === 'aging' ? 'AGING' : 'STALE';
   return { label: `${word} · ${rel}`, tone };
 }
@@ -73,7 +71,7 @@ function cell(v) {
   return String(v);
 }
 
-// ---- small presentational pieces -----------------------------------------
+// ---- small pieces ---------------------------------------------------------
 
 function Meta({ label, value }) {
   return (
@@ -83,7 +81,6 @@ function Meta({ label, value }) {
     </div>
   );
 }
-
 function StatCard({ label, value }) {
   return (
     <div className="stat">
@@ -92,7 +89,6 @@ function StatCard({ label, value }) {
     </div>
   );
 }
-
 function FieldCoverage({ presence, total }) {
   if (!presence || !total) return <p className="muted">No field-coverage detail in this capture.</p>;
   return (
@@ -123,9 +119,9 @@ function EmptyState({ data }) {
       <div className="empty-tag">NO CAPTURE ON RECORD</div>
       <h2>Awaiting first successful capture</h2>
       <p>
-        This dashboard populates automatically after the GitHub Actions scraper completes a capture in which
-        distributor prices are actually visible. Until then it shows no rows, prices, or trends — this tool never
-        displays fabricated or placeholder pricing.
+        This category populates automatically after the GitHub Actions scraper completes a capture in which distributor
+        prices are actually visible. Until then it shows no rows, prices, or trends — this tool never displays fabricated
+        or placeholder pricing.
       </p>
       {attempted && (
         <p className="muted attempt">
@@ -137,18 +133,32 @@ function EmptyState({ data }) {
   );
 }
 
-// ---- tab bodies -----------------------------------------------------------
+function PlannedCategory({ cat }) {
+  return (
+    <div className="card empty">
+      <div className="empty-tag">PLANNED CATEGORY</div>
+      <h2>{cat.name}</h2>
+      <p>
+        This category isn’t captured yet. It will populate once its distributor search URL is configured and the weekly
+        capture runs. <strong>UPS (single &amp; three-phase)</strong> is the first live category — the rest are scaffolded
+        and intentionally empty.
+      </p>
+    </div>
+  );
+}
 
-function Overview({ loading, usable, data }) {
+// ---- tab bodies (live category) -------------------------------------------
+
+function Overview({ loading, usable, data, catName }) {
   if (loading) return <div className="card muted">Loading latest capture…</div>;
   if (!usable) return <EmptyState data={data} />;
   return (
     <>
       <section className="stats">
+        <StatCard label="Category" value={catName} />
         <StatCard label="Capture status" value={<span className="ok-pill">{data.status}</span>} />
         <StatCard label="Captured at" value={fmtUTC(data.captured_at)} />
         <StatCard label="Rows this scrape" value={num(data.rows_this_scrape)} />
-        <StatCard label="Source" value={data.source ?? '—'} />
       </section>
 
       <section className="card">
@@ -159,8 +169,8 @@ function Overview({ loading, usable, data }) {
       <section className="card">
         <h3>Average Price Trends · Period-over-Period</h3>
         <p className="muted">
-          Period-over-period analytics (WoW / MoM / QoQ) activate once at least two captures are on record. Until a
-          second capture exists, no historical or comparative figures are shown.
+          Period-over-period analytics (WoW / MoM / QoQ) activate once at least two captures are on record. Until a second
+          capture exists, no historical or comparative figures are shown.
         </p>
         <div className="periods-empty">Awaiting a second capture to compute movement.</div>
       </section>
@@ -168,26 +178,35 @@ function Overview({ loading, usable, data }) {
   );
 }
 
-function Universe({ loading, usable, data, filter, setFilter }) {
+function Universe({ loading, usable, data, catName, filter, setFilter, companies, setCompanies, companyCounts }) {
   const rows = useMemo(() => {
     if (!usable) return [];
+    let r = data.products;
+    if (companies.length) r = r.filter((p) => companies.includes(companyOf(p.brand)));
     const q = filter.trim().toLowerCase();
-    if (!q) return data.products;
-    return data.products.filter((p) =>
-      [p.title, p.brand, p.item_number, p.cat_mpn, p.upc, p.category]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q)),
-    );
-  }, [usable, data, filter]);
+    if (q) {
+      r = r.filter((p) =>
+        [p.title, p.brand, p.item_number, p.cat_mpn, p.upc, p.category]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(q)),
+      );
+    }
+    return r;
+  }, [usable, data, filter, companies]);
 
   if (loading) return <div className="card muted">Loading latest capture…</div>;
   if (!usable) return <EmptyState data={data} />;
 
+  const toggle = (c) => setCompanies(companies.includes(c) ? companies.filter((x) => x !== c) : [...companies, c]);
+  const pills = [...COMPANIES, ...(companyCounts.Other ? ['Other'] : [])];
   const capped = rows.slice(0, 1000);
+
   return (
     <section className="card">
       <div className="universe-head">
-        <h3>Product Universe · {num(data.products.length)} rows</h3>
+        <h3>
+          {catName} · {num(rows.length)} of {num(data.products.length)} rows
+        </h3>
         <input
           className="filter"
           placeholder="Filter by title, brand, item #, UPC…"
@@ -195,6 +214,27 @@ function Universe({ loading, usable, data, filter, setFilter }) {
           onChange={(e) => setFilter(e.target.value)}
         />
       </div>
+
+      <div className="brandbar">
+        <span className="brandbar-label">Brand</span>
+        {pills.map((c) => (
+          <button
+            key={c}
+            className={`brandpill ${companies.includes(c) ? 'on' : ''}`}
+            onClick={() => toggle(c)}
+            disabled={!companyCounts[c]}
+            title={companyCounts[c] ? '' : 'No products from this company in the current data'}
+          >
+            {c} <span className="brandpill-n">{companyCounts[c] || 0}</span>
+          </button>
+        ))}
+        {companies.length > 0 && (
+          <button className="brandpill clear" onClick={() => setCompanies([])}>
+            Clear
+          </button>
+        )}
+      </div>
+
       <div className="table-wrap">
         <table>
           <thead>
@@ -229,11 +269,11 @@ function Universe({ loading, usable, data, filter, setFilter }) {
       </div>
       {rows.length > capped.length && (
         <p className="muted">
-          Showing first {num(capped.length)} of {num(rows.length)} matching rows. Use the filter or Download XLSX for
+          Showing first {num(capped.length)} of {num(rows.length)} matching rows. Narrow with a filter or Download XLSX for
           the full set.
         </p>
       )}
-      {rows.length === 0 && <p className="muted">No rows match “{filter}”.</p>}
+      {rows.length === 0 && <p className="muted">No rows match the current filters.</p>}
     </section>
   );
 }
@@ -243,21 +283,21 @@ function Methodology() {
     <section className="card prose">
       <h3>Methodology</h3>
       <p>
-        This is a finance-grade tracker for distributor pricing, stock, and lead-time signals across critical power and
-        data-center infrastructure. <strong>Rexel USA UPS is the first vertical slice</strong>; power distribution,
-        cooling, and broader data-center infrastructure follow the same pattern once the first slice is solid.
+        A finance-grade tracker for distributor pricing, stock, and lead-time signals across critical power and
+        data-center infrastructure. <strong>UPS (single &amp; three-phase) is the first live category</strong>; the other
+        categories are scaffolded and populate as their captures come online.
       </p>
       <h4>Data source</h4>
       <p>
-        Pricing and availability are captured from authenticated rexelusa.com sessions by a Playwright scraper that runs
-        on a schedule in <strong>GitHub Actions</strong> — never from this site. Distributor pricing is account-specific
-        and is only exposed after a normal login.
+        Pricing and availability are captured from authenticated distributor sessions by a Playwright scraper that runs on
+        a schedule in <strong>GitHub Actions</strong> — never from this site. Distributor pricing is account-specific and
+        is only exposed after a normal login.
       </p>
       <h4>Integrity rules</h4>
       <ul>
         <li>No fabricated or placeholder prices. If prices are not visible, the capture is marked <code>auth_failed_or_price_hidden</code> and excluded.</li>
         <li>No invented history. Period-over-period analytics begin only once two or more real captures are on record.</li>
-        <li>Fields not present on a product (e.g. UPC on a search tile) are shown as “—”, not guessed.</li>
+        <li>Fields not present on a product are shown as “—”, not guessed.</li>
       </ul>
       <h4>Separation of concerns</h4>
       <p>
@@ -275,6 +315,8 @@ export default function App() {
   const [raw, setRaw] = useState(undefined); // undefined = loading, null = none, object = loaded
   const [tab, setTab] = useState('Overview');
   const [filter, setFilter] = useState('');
+  const [companies, setCompanies] = useState([]);
+  const [activeCat, setActiveCat] = useState('ups');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -287,7 +329,6 @@ export default function App() {
       }
       setRaw(await res.json());
     } catch {
-      // Missing or invalid data must never break the UI.
       setRaw(null);
     } finally {
       setBusy(false);
@@ -300,13 +341,31 @@ export default function App() {
 
   const data = useMemo(() => normalize(raw), [raw]);
   const loading = raw === undefined;
-  const usable = isUsable(data);
+  const cat = categoryBySlug(activeCat);
+  const isLive = cat.status === 'live';
+  const usable = isLive && isUsable(data);
   const fresh = freshness(data?.captured_at, usable);
+
+  const companyCounts = useMemo(() => {
+    const counts = { Other: 0 };
+    COMPANIES.forEach((c) => (counts[c] = 0));
+    if (usable) data.products.forEach((p) => (counts[companyOf(p.brand)] = (counts[companyOf(p.brand)] || 0) + 1));
+    return counts;
+  }, [usable, data]);
+
+  const selectCategory = (slug) => {
+    setActiveCat(slug);
+    setTab('Overview');
+    setFilter('');
+    setCompanies([]);
+  };
 
   const downloadXlsx = useCallback(async () => {
     if (!usable) return;
-    const XLSX = await import('xlsx'); // lazy-loaded only on click
-    const rows = data.products.map((p) => ({
+    const XLSX = await import('xlsx');
+    let rows = data.products;
+    if (companies.length) rows = rows.filter((p) => companies.includes(companyOf(p.brand)));
+    const sheet = rows.map((p) => ({
       Product: p.title ?? '',
       Brand: p.brand ?? '',
       'Item #': p.item_number ?? '',
@@ -319,12 +378,12 @@ export default function App() {
       'Product URL': p.product_url ?? '',
       'Captured At': p.captured_at ?? data.captured_at ?? '',
     }));
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = XLSX.utils.json_to_sheet(sheet);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Rexel UPS');
+    XLSX.utils.book_append_sheet(wb, ws, 'UPS');
     const stamp = (data.captured_at || '').slice(0, 10) || 'latest';
-    XLSX.writeFile(wb, `critical-power-capture-${stamp}.xlsx`);
-  }, [usable, data]);
+    XLSX.writeFile(wb, `schneider-${activeCat}-${stamp}.xlsx`);
+  }, [usable, data, companies, activeCat]);
 
   return (
     <div className="app">
@@ -348,7 +407,7 @@ export default function App() {
             className="btn btn-primary"
             onClick={downloadXlsx}
             disabled={!usable}
-            title={usable ? 'Export this capture to XLSX' : 'No capture data to export yet'}
+            title={usable ? 'Export the current view to XLSX' : 'No capture data to export yet'}
           >
             Download XLSX
           </button>
@@ -356,27 +415,68 @@ export default function App() {
       </header>
 
       <div className="meta">
-        <Meta label="Last Scrape" value={fmtUTC(data?.captured_at)} />
+        <Meta label="Last Scrape" value={usable ? fmtUTC(data?.captured_at) : '—'} />
         <Meta label="Rows This Scrape" value={usable ? num(data.rows_this_scrape) : '—'} />
         <Meta label="Total Rows On Record" value={usable ? num(data.total_rows_on_record) : '—'} />
         <Meta label="Scrapes On Record" value={usable ? num(data.scrapes_on_record) : '—'} />
       </div>
 
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {t}
-          </button>
-        ))}
-      </nav>
+      <div className="layout">
+        <aside className="catnav">
+          <div className="catnav-title">Categories</div>
+          {CATEGORIES.map((g) => (
+            <div className="catgroup" key={g.group}>
+              <div className="catgroup-title">{g.group}</div>
+              {g.items.map((it) => {
+                const live = it.status === 'live';
+                return (
+                  <button
+                    key={it.slug}
+                    className={`catitem ${it.slug === activeCat ? 'active' : ''} ${live ? 'live' : 'planned'}`}
+                    onClick={() => selectCategory(it.slug)}
+                  >
+                    <span className="catitem-name">{it.name}</span>
+                    <span className="catitem-count">{live && usable ? num(data.products.length) : live ? '0' : 'soon'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </aside>
 
-      <main className="content">
-        {tab === 'Overview' && <Overview loading={loading} usable={usable} data={data} />}
-        {tab === 'Product Universe' && (
-          <Universe loading={loading} usable={usable} data={data} filter={filter} setFilter={setFilter} />
-        )}
-        {tab === 'Methodology' && <Methodology />}
-      </main>
+        <div className="panel">
+          <nav className="tabs">
+            {TABS.map((t) => (
+              <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
+                {t}
+              </button>
+            ))}
+          </nav>
+          <main className="content">
+            {!isLive ? (
+              <PlannedCategory cat={cat} />
+            ) : (
+              <>
+                {tab === 'Overview' && <Overview loading={loading} usable={usable} data={data} catName={cat.name} />}
+                {tab === 'Product Universe' && (
+                  <Universe
+                    loading={loading}
+                    usable={usable}
+                    data={data}
+                    catName={cat.name}
+                    filter={filter}
+                    setFilter={setFilter}
+                    companies={companies}
+                    setCompanies={setCompanies}
+                    companyCounts={companyCounts}
+                  />
+                )}
+                {tab === 'Methodology' && <Methodology />}
+              </>
+            )}
+          </main>
+        </div>
+      </div>
 
       <footer className="foot">
         <span>Static dashboard built by Cloudflare Pages · scraping runs only in GitHub Actions.</span>
