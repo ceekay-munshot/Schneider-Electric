@@ -39,7 +39,7 @@ body {
 }
 
 .app {
-  max-width: 1180px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 22px 16px 48px;
 }
@@ -163,7 +163,7 @@ body {
 /* layout: category rail + panel */
 .layout {
   display: grid;
-  grid-template-columns: 250px 1fr;
+  grid-template-columns: 210px 1fr;
   gap: 16px;
   margin-top: 16px;
   align-items: start;
@@ -254,6 +254,65 @@ body {
 }
 .panel {
   min-width: 0;
+}
+
+/* data view: trends on top, table main, info side rail */
+.data-split {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .data-split {
+    grid-template-columns: 1fr;
+  }
+}
+.data-main {
+  min-width: 0;
+}
+.data-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 12px;
+}
+.side-card h3 {
+  margin-bottom: 10px;
+}
+.trends-top {
+  background: linear-gradient(135deg, #f4faff 0%, #e9f2fc 100%);
+}
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  margin: 0;
+  align-items: center;
+}
+.kv dt {
+  color: var(--muted-2);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+.kv dd {
+  margin: 0;
+  text-align: right;
+  color: #294160;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.data-side .cov-row {
+  grid-template-columns: 72px 1fr 50px;
+  gap: 8px;
+  font-size: 11px;
+}
+.data-side .cov-name {
+  font-weight: 600;
 }
 
 /* brand filter pills */

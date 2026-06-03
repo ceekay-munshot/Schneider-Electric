@@ -5,7 +5,7 @@ import { CATEGORIES, ALL_CATEGORIES, categoryBySlug, COMPANIES, companyOf } from
 // data/ups.json, data/busway.json). Absent/failed file -> safe empty state.
 const LIVE_CATEGORIES = ALL_CATEGORIES.filter((c) => c.status === 'live');
 
-const TABS = ['Overview', 'Product Universe', 'Methodology'];
+const TABS = ['Pricing', 'Methodology'];
 
 const COLUMNS = [
   ['title', 'Product'],
@@ -151,32 +151,44 @@ function PlannedCategory({ cat }) {
 
 // ---- tab bodies (live category) -------------------------------------------
 
-function Overview({ loading, usable, data, catName }) {
-  if (loading) return <div className="card muted">Loading latest capture…</div>;
-  if (!usable) return <EmptyState data={data} />;
+// Prominent top banner — becomes the headline analytics once 2+ captures exist.
+function PriceTrends() {
   return (
-    <>
-      <section className="stats">
-        <StatCard label="Category" value={catName} />
-        <StatCard label="Capture status" value={<span className="ok-pill">{data.status}</span>} />
-        <StatCard label="Captured at" value={fmtUTC(data.captured_at)} />
-        <StatCard label="Rows this scrape" value={num(data.rows_this_scrape)} />
-      </section>
+    <section className="card trends-top">
+      <h3>Average Price Trends · Period-over-Period</h3>
+      <p className="muted">
+        Period-over-period analytics (WoW / MoM / QoQ) activate once at least two captures are on record. Until a second
+        capture exists, no historical or comparative figures are shown.
+      </p>
+      <div className="periods-empty">Awaiting a second capture to compute movement.</div>
+    </section>
+  );
+}
 
-      <section className="card">
-        <h3>Field coverage · latest capture</h3>
+// Compact secondary info, lives in the right side rail next to the table.
+function CaptureSidebar({ data, catName }) {
+  return (
+    <aside className="data-side">
+      <section className="card side-card">
+        <h3>Capture</h3>
+        <dl className="kv">
+          <dt>Category</dt>
+          <dd>{catName}</dd>
+          <dt>Status</dt>
+          <dd>
+            <span className="ok-pill">{data.status}</span>
+          </dd>
+          <dt>Captured</dt>
+          <dd>{fmtUTC(data.captured_at)}</dd>
+          <dt>Rows</dt>
+          <dd>{num(data.rows_this_scrape)}</dd>
+        </dl>
+      </section>
+      <section className="card side-card">
+        <h3>Field coverage</h3>
         <FieldCoverage presence={data.field_presence} total={data.rows_this_scrape} />
       </section>
-
-      <section className="card">
-        <h3>Average Price Trends · Period-over-Period</h3>
-        <p className="muted">
-          Period-over-period analytics (WoW / MoM / QoQ) activate once at least two captures are on record. Until a second
-          capture exists, no historical or comparative figures are shown.
-        </p>
-        <div className="periods-empty">Awaiting a second capture to compute movement.</div>
-      </section>
-    </>
+    </aside>
   );
 }
 
@@ -353,7 +365,7 @@ function Methodology() {
 
 export default function App() {
   const [dataMap, setDataMap] = useState({}); // slug -> raw json | null | undefined(unloaded)
-  const [tab, setTab] = useState('Overview');
+  const [tab, setTab] = useState('Pricing');
   const [filter, setFilter] = useState('');
   const [companies, setCompanies] = useState([]);
   const [priceFilter, setPriceFilter] = useState('all'); // all | priced | unpriced
@@ -407,7 +419,7 @@ export default function App() {
 
   const selectCategory = (slug) => {
     setActiveCat(slug);
-    setTab('Overview');
+    setTab('Pricing');
     setFilter('');
     setCompanies([]);
     setPriceFilter('all');
@@ -509,26 +521,34 @@ export default function App() {
           </nav>
           <main className="content">
             {!isLive ? (
-              <PlannedCategory cat={cat} />
+              tab === 'Methodology' ? <Methodology /> : <PlannedCategory cat={cat} />
+            ) : tab === 'Methodology' ? (
+              <Methodology />
+            ) : loading ? (
+              <div className="card muted">Loading latest capture…</div>
+            ) : !usable ? (
+              <EmptyState data={data} />
             ) : (
               <>
-                {tab === 'Overview' && <Overview loading={loading} usable={usable} data={data} catName={cat.name} />}
-                {tab === 'Product Universe' && (
-                  <Universe
-                    loading={loading}
-                    usable={usable}
-                    data={data}
-                    catName={cat.name}
-                    filter={filter}
-                    setFilter={setFilter}
-                    companies={companies}
-                    setCompanies={setCompanies}
-                    companyCounts={companyCounts}
-                    priceFilter={priceFilter}
-                    setPriceFilter={setPriceFilter}
-                  />
-                )}
-                {tab === 'Methodology' && <Methodology />}
+                <PriceTrends />
+                <div className="data-split">
+                  <div className="data-main">
+                    <Universe
+                      loading={loading}
+                      usable={usable}
+                      data={data}
+                      catName={cat.name}
+                      filter={filter}
+                      setFilter={setFilter}
+                      companies={companies}
+                      setCompanies={setCompanies}
+                      companyCounts={companyCounts}
+                      priceFilter={priceFilter}
+                      setPriceFilter={setPriceFilter}
+                    />
+                  </div>
+                  <CaptureSidebar data={data} catName={cat.name} />
+                </div>
               </>
             )}
           </main>
