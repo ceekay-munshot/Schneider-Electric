@@ -121,7 +121,7 @@ function EmptyState({ data }) {
   return (
     <div className="card empty">
       <div className="empty-tag">NO CAPTURE ON RECORD</div>
-      <h2>Awaiting first successful Rexel capture</h2>
+      <h2>Awaiting first successful capture</h2>
       <p>
         This dashboard populates automatically after the GitHub Actions scraper completes a capture in which
         distributor prices are actually visible. Until then it shows no rows, prices, or trends — this tool never
@@ -330,7 +330,7 @@ export default function App() {
     <div className="app">
       <header className="hdr">
         <div className="hdr-titles">
-          <h1>Critical Power &amp; Data Center Infrastructure Pricing Tracker</h1>
+          <h1>Schneider &mdash; Power &amp; Data Center Infrastructure Pricing Tracker</h1>
           <p className="sub">
             A finance-grade tracker that captures distributor pricing, stock, and lead-time signals for UPS, power
             distribution, cooling, and data-center infrastructure.
