@@ -596,6 +596,16 @@ async function main() {
       }
       products = dedupe(products);
 
+      // Failsafe: if extraction produced nothing, capture the search page so a
+      // scheduled (non-debug) run is still diagnosable — the markup/endpoint may
+      // have drifted. The self-heal routine reads this artifact to re-tune.
+      if (!products.length) {
+        await page.goto(SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: DELAYS.nav }).catch(() => {});
+        await sleep(DELAYS.settle);
+        await dismissOverlays(page);
+        await dumpDiagnostics(page, 'graybar-search-failure');
+      }
+
       // Enrich price + stock per product via the detail JSON endpoint.
       if (ENRICH && products.length) {
         log(`enriching price + stock for ${products.length} products via /p/details (paced)…`);
