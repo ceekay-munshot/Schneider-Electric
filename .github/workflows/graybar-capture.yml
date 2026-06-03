@@ -11,9 +11,9 @@ on:
         description: "Limit price enrichment to N products (blank = all). Use a small N to validate."
         type: string
         default: ""
-  # Daily at 03:30 UTC (offset from the Rexel job).
+  # Weekly — Mondays at 03:30 UTC (offset from the Rexel job).
   schedule:
-    - cron: "30 3 * * *"
+    - cron: "30 3 * * 1"
 
 permissions:
   contents: read
