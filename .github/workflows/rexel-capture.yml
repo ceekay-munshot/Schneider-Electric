@@ -8,9 +8,11 @@ on:
         description: "Print counts & field-presence diagnostics only (never secrets)"
         type: boolean
         default: false
-  # Weekly — Mondays at 02:30 UTC.
-  schedule:
-    - cron: "30 2 * * 1"
+  # Schedule paused: rexelusa.com is CAPTCHA/bot-walled, so scheduled runs only
+  # ever fail (auth_failed_or_price_hidden). Manual dispatch is kept for testing;
+  # re-enable by uncommenting if the Rexel login is ever solved.
+  # schedule:
+  #   - cron: "30 2 * * 1"
 
 # Least privilege: this job only needs to read the repo.
 permissions:
