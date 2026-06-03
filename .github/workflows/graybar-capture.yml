@@ -15,8 +15,10 @@ on:
   schedule:
     - cron: "30 3 * * 1"
 
+# contents: write so a successful weekly capture can publish its data and the
+# Cloudflare Pages dashboard auto-refreshes. (Enabled at the user's direction.)
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: graybar-capture
@@ -60,6 +62,25 @@ jobs:
           DEBUG: ${{ inputs.debug }}
           GRAYBAR_ENRICH_CAP: ${{ inputs.enrich_cap }}
         run: npm run capture:graybar
+
+      # Runs only when the capture step succeeded (status=ok); the publisher also
+      # refuses to publish a non-"ok" capture. Pushing the data triggers a
+      # Cloudflare Pages rebuild so the dashboard reflects the weekly capture.
+      - name: Publish capture to dashboard data
+        run: node scripts/publish-dashboard-data.js output/graybar-ups-latest.json public/data/latest-capture.json
+
+      - name: Commit dashboard data
+        run: |
+          if git diff --quiet -- public/data/latest-capture.json; then
+            echo "No dashboard data change; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/latest-capture.json
+          git commit -m "data: weekly Graybar capture refresh [skip ci]"
+          git pull --rebase --autostash origin main || true
+          git push
 
       - name: Upload capture artifacts
         if: always()
