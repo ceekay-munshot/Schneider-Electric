@@ -14,8 +14,11 @@ export const BASE_URL = 'https://www.graybar.com';
 // falls back to opening the login UI from the homepage.
 export const LOGIN_URL = `${BASE_URL}/login`;
 
-// The exact UPS search URL provided for the mission (Eaton / APC / Tripp Lite).
+// Category + search URL are set per-category in the workflow matrix via env.
+// A bare `npm run capture:graybar` defaults to the UPS capture.
+export const CATEGORY = process.env.GRAYBAR_CATEGORY || 'ups';
 export const SEARCH_URL =
+  process.env.GRAYBAR_SEARCH_URL ||
   'https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3AEaton%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ATripp+Lite+%28Eaton%29&text=ups&enablePartNumberSearch=';
 
 // Pagination query parameter, 0-indexed (confirmed: &page=2 renders page "3").

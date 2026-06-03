@@ -1,8 +1,12 @@
-name: Graybar UPS Capture
+name: Graybar Capture
 
 on:
   workflow_dispatch:
     inputs:
+      category:
+        description: "Category to capture: all, ups, or busway"
+        type: string
+        default: "all"
       debug:
         description: "Print counts & field-presence diagnostics only (never secrets)"
         type: boolean
@@ -11,12 +15,12 @@ on:
         description: "Limit price enrichment to N products (blank = all). Use a small N to validate."
         type: string
         default: ""
-  # Weekly — Mondays at 03:30 UTC (offset from the Rexel job).
+  # Weekly — Mondays at 03:30 UTC.
   schedule:
     - cron: "30 3 * * 1"
 
-# contents: write so a successful weekly capture can publish its data and the
-# Cloudflare Pages dashboard auto-refreshes. (Enabled at the user's direction.)
+# contents: write so a successful capture can publish its data and the Cloudflare
+# Pages dashboard auto-refreshes. (Enabled at the user's direction.)
 permissions:
   contents: write
 
@@ -29,64 +33,87 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
-    # Map GitHub secrets -> env vars with the EXACT names the scraper reads.
+    # One matrix slice per live category, run sequentially (max-parallel: 1) so
+    # their commits to public/data/<slug>.json never race. Add a category by
+    # adding a {slug, url} entry here and a live entry in src/categories.js.
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - slug: ups
+            url: "https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3AEaton%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ATripp+Lite+%28Eaton%29&text=ups&enablePartNumberSearch="
+          - slug: busway
+            url: "https://www.graybar.com/search/?text=busway"
+
     env:
       GRAYBAR_EMAIL: ${{ secrets.GRAYBAR_EMAIL }}
       GRAYBAR_PASSWORD: ${{ secrets.GRAYBAR_PASSWORD }}
+      GRAYBAR_CATEGORY: ${{ matrix.slug }}
+      GRAYBAR_SEARCH_URL: ${{ matrix.url }}
+      # 'true' for scheduled runs (all categories) or a dispatch that selects all
+      # or this slice's slug; 'false' to skip this slice.
+      RUN_THIS: ${{ github.event_name != 'workflow_dispatch' || inputs.category == 'all' || inputs.category == matrix.slug }}
 
     steps:
       - name: Checkout
+        if: ${{ env.RUN_THIS == 'true' }}
         uses: actions/checkout@v4
 
-      # Fail clearly if either secret is missing — without printing values.
       - name: Validate secrets are present
+        if: ${{ env.RUN_THIS == 'true' }}
         run: |
           test -n "$GRAYBAR_EMAIL" || { echo "Missing GRAYBAR_EMAIL"; exit 1; }
           test -n "$GRAYBAR_PASSWORD" || { echo "Missing GRAYBAR_PASSWORD"; exit 1; }
           echo "Graybar secrets are present."
 
       - name: Setup Node
+        if: ${{ env.RUN_THIS == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install dependencies
+        if: ${{ env.RUN_THIS == 'true' }}
         run: npm ci
 
       - name: Install Playwright browsers
+        if: ${{ env.RUN_THIS == 'true' }}
         run: npx playwright install --with-deps chromium
 
-      - name: Run Graybar capture
+      - name: Run capture (${{ matrix.slug }})
+        if: ${{ env.RUN_THIS == 'true' }}
         env:
           DEBUG: ${{ inputs.debug }}
           GRAYBAR_ENRICH_CAP: ${{ inputs.enrich_cap }}
         run: npm run capture:graybar
 
-      # Runs only when the capture step succeeded (status=ok); the publisher also
-      # refuses to publish a non-"ok" capture. Pushing the data triggers a
-      # Cloudflare Pages rebuild so the dashboard reflects the weekly capture.
-      - name: Publish capture to dashboard data
-        run: node scripts/publish-dashboard-data.js output/graybar-ups-latest.json public/data/latest-capture.json
+      # The two steps below run only when the capture step succeeded (status=ok);
+      # publish-dashboard-data.js itself refuses to publish a non-"ok" capture.
+      - name: Publish ${{ matrix.slug }} to dashboard data
+        if: ${{ env.RUN_THIS == 'true' }}
+        run: node scripts/publish-dashboard-data.js output/graybar-${{ matrix.slug }}-latest.json public/data/${{ matrix.slug }}.json
 
       - name: Commit dashboard data
+        if: ${{ env.RUN_THIS == 'true' }}
         run: |
-          if git diff --quiet -- public/data/latest-capture.json; then
-            echo "No dashboard data change; nothing to commit."
+          if git diff --quiet -- public/data/${{ matrix.slug }}.json; then
+            echo "No dashboard data change for ${{ matrix.slug }}; nothing to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/latest-capture.json
-          git commit -m "data: weekly Graybar capture refresh [skip ci]"
+          git add public/data/${{ matrix.slug }}.json
+          git commit -m "data: weekly ${{ matrix.slug }} capture refresh [skip ci]"
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
 
       - name: Upload capture artifacts
-        if: always()
+        if: ${{ always() && env.RUN_THIS == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: graybar-ups-capture-${{ github.run_id }}
+          name: graybar-${{ matrix.slug }}-capture-${{ github.run_id }}
           path: output/
           if-no-files-found: warn
           retention-days: 30

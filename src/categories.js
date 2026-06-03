@@ -10,9 +10,9 @@ export const CATEGORIES = [
   {
     group: 'Data Center Infrastructure',
     items: [
-      { slug: 'ups', name: 'UPS (single & three-phase)', status: 'live', captureUrl: null },
+      { slug: 'ups', name: 'UPS (single & three-phase)', status: 'live', dataUrl: 'data/ups.json' },
       { slug: 'rack-pdus', name: 'Rack PDUs', status: 'planned', captureUrl: null },
-      { slug: 'busway', name: 'Busway / Power Distribution', status: 'planned', captureUrl: null },
+      { slug: 'busway', name: 'Busway / Power Distribution', status: 'live', dataUrl: 'data/busway.json' },
       { slug: 'mv-switchgear', name: 'MV Switchgear', status: 'planned', captureUrl: null },
       { slug: 'transformers', name: 'MV / LV Transformers', status: 'planned', captureUrl: null },
       { slug: 'modular-dc', name: 'Prefab / Modular Data Centers', status: 'planned', captureUrl: null },

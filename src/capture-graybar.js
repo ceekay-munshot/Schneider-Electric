@@ -26,7 +26,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { BASE_URL, LOGIN_URL, SEARCH_URL, PAGE_PARAM, SELECTORS, API_HINTS } from './graybar-selectors.js';
+import { BASE_URL, LOGIN_URL, SEARCH_URL, CATEGORY, PAGE_PARAM, SELECTORS, API_HINTS } from './graybar-selectors.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -555,10 +555,13 @@ async function main() {
       status = STATUS.AUTH_FAILED_OR_PRICE_HIDDEN;
       reason = `challenge_detected:${(loginRes.blockers || []).join('|')}`;
     } else {
-      log('navigating to UPS search…');
+      log(`navigating to ${CATEGORY} search…`);
       await page.goto(SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: DELAYS.nav }).catch(() => {});
       await sleep(DELAYS.settle);
       await dismissOverlays(page);
+      // Graybar may normalize e.g. ?text=busway -> ?q=query:busway…; paginate
+      // off the resolved URL so &page=N lands on the right result set.
+      const resolvedSearchUrl = page.url() || SEARCH_URL;
 
       priceCheck = await pageHasPrices(page);
       // Capture the (post-login) search page so its real product-card structure
@@ -571,7 +574,7 @@ async function main() {
       let noNew = 0;
       for (let i = 0; i < DELAYS.maxPages; i++) {
         if (i > 0) {
-          await page.goto(pageUrl(SEARCH_URL, i), { waitUntil: 'domcontentloaded', timeout: DELAYS.nav }).catch(() => {});
+          await page.goto(pageUrl(resolvedSearchUrl, i), { waitUntil: 'domcontentloaded', timeout: DELAYS.nav }).catch(() => {});
           await sleep(DELAYS.settle);
           await jitter();
         }
@@ -634,6 +637,7 @@ async function main() {
   const result = {
     status,
     reason,
+    category: CATEGORY,
     captured_at: capturedAt,
     search_url: SEARCH_URL,
     source: products.length ? 'dom' : 'none',
@@ -652,14 +656,14 @@ async function main() {
     products,
   };
 
-  const jsonPath = path.join(OUTPUT_DIR, `graybar-ups-${stamp}.json`);
-  const latestPath = path.join(OUTPUT_DIR, 'graybar-ups-latest.json');
-  const csvPath = path.join(OUTPUT_DIR, `graybar-ups-${stamp}.csv`);
+  const jsonPath = path.join(OUTPUT_DIR, `graybar-${CATEGORY}-${stamp}.json`);
+  const latestPath = path.join(OUTPUT_DIR, `graybar-${CATEGORY}-latest.json`);
+  const csvPath = path.join(OUTPUT_DIR, `graybar-${CATEGORY}-${stamp}.csv`);
   await writeFile(jsonPath, JSON.stringify(result, null, 2));
   await writeFile(latestPath, JSON.stringify(result, null, 2));
   await writeFile(csvPath, toCsv(products));
   if (rawPayloads.length) {
-    await writeFile(path.join(OUTPUT_DIR, `graybar-raw-responses-${stamp}.json`), JSON.stringify(rawPayloads, null, 2));
+    await writeFile(path.join(OUTPUT_DIR, `graybar-${CATEGORY}-raw-responses-${stamp}.json`), JSON.stringify(rawPayloads, null, 2));
   }
 
   log(`status=${status}${reason ? ` reason=${reason}` : ''} products=${products.length} priced=${enrichStats.withPrice} pages=${pagesVisited}${capped ? ' (PAGE CAP HIT)' : ''}`);

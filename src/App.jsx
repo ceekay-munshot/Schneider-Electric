@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CATEGORIES, ALL_CATEGORIES, categoryBySlug, COMPANIES, companyOf } from './categories.js';
 
-// A future GitHub Actions step can copy the scraper's latest successful capture
-// to public/data/latest-capture.json. If the file is absent, the UI shows a safe
-// empty state — it never fabricates data.
-const DATA_URL = `${import.meta.env.BASE_URL}data/latest-capture.json`;
+// Each live category loads its own data file (categories.js -> dataUrl, e.g.
+// data/ups.json, data/busway.json). Absent/failed file -> safe empty state.
+const LIVE_CATEGORIES = ALL_CATEGORIES.filter((c) => c.status === 'live');
 
 const TABS = ['Overview', 'Product Universe', 'Methodology'];
 
@@ -312,37 +311,48 @@ function Methodology() {
 // ---- app shell ------------------------------------------------------------
 
 export default function App() {
-  const [raw, setRaw] = useState(undefined); // undefined = loading, null = none, object = loaded
+  const [dataMap, setDataMap] = useState({}); // slug -> raw json | null | undefined(unloaded)
   const [tab, setTab] = useState('Overview');
   const [filter, setFilter] = useState('');
   const [companies, setCompanies] = useState([]);
   const [activeCat, setActiveCat] = useState('ups');
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setBusy(true);
+  const loadCat = useCallback(async (slug) => {
+    const c = categoryBySlug(slug);
+    if (c.status !== 'live' || !c.dataUrl) return;
     try {
-      const res = await fetch(`${DATA_URL}?ts=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) {
-        setRaw(null);
-        return;
-      }
-      setRaw(await res.json());
+      const res = await fetch(`${import.meta.env.BASE_URL}${c.dataUrl}?ts=${Date.now()}`, { cache: 'no-store' });
+      const json = res.ok ? await res.json() : null;
+      setDataMap((m) => ({ ...m, [slug]: json }));
     } catch {
-      setRaw(null);
-    } finally {
-      setBusy(false);
+      setDataMap((m) => ({ ...m, [slug]: null }));
     }
   }, []);
 
+  // Load every live category once so the sidebar can show each one's count.
   useEffect(() => {
-    load();
-  }, [load]);
+    LIVE_CATEGORIES.forEach((c) => loadCat(c.slug));
+  }, [loadCat]);
 
-  const data = useMemo(() => normalize(raw), [raw]);
-  const loading = raw === undefined;
+  const refresh = useCallback(async () => {
+    setBusy(true);
+    await loadCat(activeCat);
+    setBusy(false);
+  }, [loadCat, activeCat]);
+
+  const catCount = (slug) => {
+    const r = dataMap[slug];
+    if (r === undefined) return '…';
+    const d = normalize(r);
+    return isUsable(d) ? num(d.products.length) : '0';
+  };
+
   const cat = categoryBySlug(activeCat);
   const isLive = cat.status === 'live';
+  const raw = dataMap[activeCat];
+  const data = useMemo(() => normalize(raw), [raw]);
+  const loading = isLive && raw === undefined;
   const usable = isLive && isUsable(data);
   const fresh = freshness(data?.captured_at, usable);
 
@@ -400,7 +410,7 @@ export default function App() {
             <i className="dot" />
             {fresh.label}
           </span>
-          <button className="btn" onClick={load} disabled={busy}>
+          <button className="btn" onClick={refresh} disabled={busy}>
             {busy ? 'Refreshing…' : 'Refresh'}
           </button>
           <button
@@ -436,7 +446,7 @@ export default function App() {
                     onClick={() => selectCategory(it.slug)}
                   >
                     <span className="catitem-name">{it.name}</span>
-                    <span className="catitem-count">{live && usable ? num(data.products.length) : live ? '0' : 'soon'}</span>
+                    <span className="catitem-count">{live ? catCount(it.slug) : 'soon'}</span>
                   </button>
                 );
               })}
