@@ -31,7 +31,7 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
 
     # One matrix slice per live category, run sequentially (max-parallel: 1) so
     # their commits to public/data/<slug>.json never race. Add a category by
@@ -42,7 +42,7 @@ jobs:
       matrix:
         include:
           - slug: ups
-            url: "https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3AEaton%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ATripp+Lite+%28Eaton%29&text=ups&enablePartNumberSearch="
+            url: "https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3ATripp+Lite+%28Eaton%29%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ALiebert+%28Vertiv%29%3Bbrands%3AEaton%3Bbrands%3AChatsworth&text=ups&enablePartNumberSearch="
           - slug: busway
             url: "https://www.graybar.com/search/?q=query%3Abusway%3Bsort%3Arelevance&text=busway"
 

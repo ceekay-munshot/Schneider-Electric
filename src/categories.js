@@ -48,13 +48,15 @@ export function categoryBySlug(slug) {
 }
 
 // Parent companies for the brand filter (extend freely).
-export const COMPANIES = ['Schneider', 'Eaton', 'nVent', 'Delta'];
+export const COMPANIES = ['Schneider', 'Eaton', 'Vertiv', 'Chatsworth', 'nVent', 'Delta'];
 
 // Map a granular brand string (e.g. "APC (Schneider Electric)") to its parent.
 export function companyOf(brand) {
   const b = (brand || '').toLowerCase();
   if (/schneider|\bapc\b|square ?d/.test(b)) return 'Schneider';
   if (/eaton|tripp ?lite/.test(b)) return 'Eaton';
+  if (/vertiv|liebert/.test(b)) return 'Vertiv';
+  if (/chatsworth|\bcpi\b/.test(b)) return 'Chatsworth';
   if (/nvent|hoffman|schroff|eriflex|caddy/.test(b)) return 'nVent';
   if (/delta/.test(b)) return 'Delta';
   return 'Other';
