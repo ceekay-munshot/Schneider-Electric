@@ -183,6 +183,15 @@ body {
   max-height: calc(100vh - 24px);
   overflow-y: auto;
 }
+/* Single column: a viewport-tall sticky rail would ride over the panel
+   (and Chromium lets it escape its grid row). Compact scrollable box instead.
+   (Must come after the .catnav rule above — same specificity, cascade wins.) */
+@media (max-width: 760px) {
+  .catnav {
+    position: static;
+    max-height: 44vh;
+  }
+}
 .catnav-title {
   font-size: 11px;
   font-weight: 700;
@@ -580,6 +589,184 @@ code {
   border: 1px dashed var(--line);
   border-radius: 10px;
   background: #f4faff;
+}
+
+/* period-over-period trends */
+.trends-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.trends-span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.trends-note {
+  margin: 0;
+  font-size: 12px;
+}
+.periods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.period {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px 15px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    transform 240ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.period:nth-child(2) {
+  transition-delay: 40ms;
+}
+.period:nth-child(3) {
+  transition-delay: 80ms;
+}
+@starting-style {
+  .period {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.period.inactive {
+  border-style: dashed;
+  background: #f7fbff;
+}
+.period-key {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #34557e;
+}
+.period-key .period-name {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--muted-2);
+  text-transform: none;
+  white-space: nowrap;
+}
+.period-delta {
+  margin-top: 9px;
+  font-size: 22px;
+  font-weight: 750;
+  line-height: 1;
+}
+.period-delta .delta-arrow {
+  font-size: 13px;
+  vertical-align: 2px;
+}
+.delta-up {
+  color: #c05661;
+}
+.delta-down {
+  color: var(--green-deep);
+}
+.delta-flat {
+  color: #34557e;
+}
+.period-vals {
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.period-base {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted-2);
+}
+.period-wait {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.period-progress {
+  display: block;
+  margin-top: 10px;
+  height: 6px;
+}
+
+/* avg-price sparkline */
+.spark-wrap {
+  margin-top: 16px;
+  opacity: 1;
+  transition: opacity 280ms cubic-bezier(0.23, 1, 0.32, 1) 120ms;
+}
+@starting-style {
+  .spark-wrap {
+    opacity: 0;
+  }
+}
+.spark {
+  display: block;
+  width: 100%;
+  height: 56px;
+}
+.spark-area {
+  fill: rgba(79, 151, 223, 0.1);
+  stroke: none;
+}
+.spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.spark-dot {
+  stroke: var(--accent-soft);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.spark-dot.last {
+  stroke: var(--accent);
+  stroke-width: 8;
+}
+.spark-axis {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+.spark-cap {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  letter-spacing: 0.2px;
+}
+@media (max-width: 700px) {
+  .spark-cap {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .period,
+  .spark-wrap {
+    transition: opacity 200ms ease;
+  }
+  @starting-style {
+    .period {
+      transform: none;
+    }
+  }
 }
 
 /* universe table */
