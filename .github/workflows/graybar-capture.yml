@@ -83,32 +83,45 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run capture (${{ matrix.slug }})
+        id: capture
         if: ${{ env.RUN_THIS == 'true' }}
         env:
           DEBUG: ${{ inputs.debug }}
           GRAYBAR_ENRICH_CAP: ${{ inputs.enrich_cap }}
         run: npm run capture:graybar
 
-      # The two steps below run only when the capture step succeeded (status=ok);
+      # Runs on success AND failure: records the attempt (streak, last success,
+      # run link) so the dashboard can show a failure banner instead of silently
+      # aging when scheduled captures start dying.
+      - name: Record capture health
+        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.conclusion != 'skipped' }}
+        env:
+          CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/record-health.js public/data/${{ matrix.slug }}-health.json output/graybar-${{ matrix.slug }}-latest.json
+
+      # Publish runs only when the capture step succeeded (status=ok);
       # publish-dashboard-data.js itself refuses to publish a non-"ok" capture.
       - name: Publish ${{ matrix.slug }} to dashboard data
         if: ${{ env.RUN_THIS == 'true' }}
         run: node scripts/publish-dashboard-data.js output/graybar-${{ matrix.slug }}-latest.json public/data/${{ matrix.slug }}.json
 
+      # Commits on success AND failure (a failed attempt still updates the
+      # health file, so the dashboard banner appears via the Pages rebuild).
       - name: Commit dashboard data
-        if: ${{ env.RUN_THIS == 'true' }}
+        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.conclusion != 'skipped' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/${{ matrix.slug }}.json
-          if git diff --cached --quiet -- public/data/${{ matrix.slug }}.json; then
+          git add public/data/${{ matrix.slug }}.json public/data/${{ matrix.slug }}-health.json
+          if git diff --cached --quiet -- public/data/; then
             echo "No dashboard data change for ${{ matrix.slug }}; nothing to commit."
             exit 0
           fi
           # No [skip ci] here: Cloudflare Pages treats it as a build-skip directive,
           # which is exactly the build that publishes this data. GitHub Actions can't
           # loop on this push anyway (GITHUB_TOKEN pushes never trigger workflows).
-          git commit -m "data: weekly ${{ matrix.slug }} capture refresh"
+          git commit -m "data: weekly ${{ matrix.slug }} capture refresh (${{ steps.capture.outcome }})"
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
 
