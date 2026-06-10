@@ -125,11 +125,29 @@ jobs:
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
 
-      - name: Upload capture artifacts
-        if: ${{ always() && env.RUN_THIS == 'true' }}
+      # Public repo: any logged-in GitHub user can download artifacts. The debug
+      # set (full-page HTML, screenshots, raw API payloads) comes from an
+      # authenticated distributor session and can expose the account identity
+      # and negotiated pricing — so successful runs upload data files only.
+      - name: Upload capture data
+        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: graybar-${{ matrix.slug }}-capture-${{ github.run_id }}
-          path: output/
+          path: |
+            output/graybar-${{ matrix.slug }}-latest.json
+            output/graybar-${{ matrix.slug }}-2*.json
+            output/graybar-${{ matrix.slug }}-2*.csv
           if-no-files-found: warn
           retention-days: 30
+
+      # Full debug set only when the capture failed, kept a week — enough to
+      # diagnose, not a standing exposure.
+      - name: Upload debug artifacts (failed capture)
+        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: graybar-${{ matrix.slug }}-debug-${{ github.run_id }}
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -57,18 +57,34 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run Rexel capture
+        id: capture
         env:
           # Empty for scheduled runs (off); 'true' when dispatched with debug on.
           DEBUG: ${{ inputs.debug }}
         run: npm run capture:rexel
 
-      # Always upload whatever was produced — including the diagnostic status
-      # file written when a run is marked auth_failed_or_price_hidden.
-      - name: Upload capture artifacts
-        if: always()
+      # Public repo: any logged-in GitHub user can download artifacts. The debug
+      # set (full-page HTML, screenshots, raw API payloads) comes from an
+      # authenticated distributor session — successful runs upload data files only.
+      - name: Upload capture data
+        if: ${{ always() && steps.capture.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: rexel-ups-capture-${{ github.run_id }}
-          path: output/
+          path: |
+            output/rexel-ups-latest.json
+            output/rexel-ups-2*.json
+            output/rexel-ups-2*.csv
           if-no-files-found: warn
           retention-days: 30
+
+      # Full debug set (incl. the auth_failed_or_price_hidden status file and
+      # login screenshots) only when the capture failed, kept a week.
+      - name: Upload debug artifacts (failed capture)
+        if: ${{ always() && steps.capture.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rexel-ups-debug-${{ github.run_id }}
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 7
