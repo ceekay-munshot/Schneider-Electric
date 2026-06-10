@@ -315,6 +315,63 @@ function Sparkline({ history }) {
   );
 }
 
+// ---- capture health ---------------------------------------------------------
+// CI records every attempt (success or failure) in data/<slug>-health.json.
+// Failing or stalled automation surfaces here instead of silently aging.
+
+function healthAlert(health, capturedAt) {
+  if (health && health.last_attempt_status === 'failed' && health.consecutive_failures > 0) {
+    return {
+      kind: 'failing',
+      n: health.consecutive_failures,
+      attemptAt: health.last_attempt_at,
+      lastGood: health.last_success_at ?? capturedAt ?? null,
+      runUrl: health.run_url ?? null,
+      hint: health.hint ?? null,
+    };
+  }
+  const seen = [health?.last_attempt_at, capturedAt].filter(Boolean).map((d) => new Date(d).getTime());
+  const last = seen.length ? Math.max(...seen) : null;
+  // Weekly cadence: anything past 9 days means at least one missed attempt.
+  if (last && Date.now() - last > 9 * DAY) {
+    return { kind: 'overdue', sinceDays: Math.floor((Date.now() - last) / DAY) };
+  }
+  return null;
+}
+
+function HealthBanner({ alert }) {
+  if (!alert) return null;
+  if (alert.kind === 'failing') {
+    return (
+      <div className="health-banner failing" role="alert">
+        <i className="dot" />
+        <div>
+          <strong>Capture attempts are failing</strong> — {alert.n === 1 ? 'one attempt' : `${alert.n} in a row`}, last
+          tried {fmtUTC(alert.attemptAt)}.{alert.hint ? <> <code>{alert.hint}</code>.</> : null} Table shows the last
+          good capture{alert.lastGood ? <> from {fmtUTC(alert.lastGood)}</> : null}.
+          {alert.runUrl ? (
+            <>
+              {' '}
+              <a href={alert.runUrl} target="_blank" rel="noreferrer noopener">
+                View the failed run →
+              </a>
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="health-banner overdue" role="status">
+      <i className="dot" />
+      <div>
+        <strong>No capture attempt in {alert.sinceDays} days</strong> — the weekly schedule (Mondays 03:30 UTC) looks
+        stalled. Data below is from the last successful capture.
+      </div>
+    </div>
+  );
+}
+
 // Prominent top banner — the headline analytics once 2+ captures exist.
 function PriceTrends({ history }) {
   const ready = history.length >= 2;
@@ -569,6 +626,7 @@ function Methodology() {
 
 export default function App() {
   const [dataMap, setDataMap] = useState({}); // slug -> raw json | null | undefined(unloaded)
+  const [healthMap, setHealthMap] = useState({}); // slug -> health json | null
   const [tab, setTab] = useState('Table');
   const [filter, setFilter] = useState('');
   const [companies, setCompanies] = useState([]);
@@ -586,6 +644,15 @@ export default function App() {
       setDataMap((m) => ({ ...m, [slug]: json }));
     } catch {
       setDataMap((m) => ({ ...m, [slug]: null }));
+    }
+    // Health file is optional (absent until the first post-upgrade run; a Pages
+    // SPA fallback can also return HTML for it) — any failure means "no health".
+    try {
+      const hres = await fetch(`${import.meta.env.BASE_URL}data/${slug}-health.json?ts=${Date.now()}`, { cache: 'no-store' });
+      const health = hres.ok ? await hres.json() : null;
+      setHealthMap((m) => ({ ...m, [slug]: health && health.last_attempt_at ? health : null }));
+    } catch {
+      setHealthMap((m) => ({ ...m, [slug]: null }));
     }
   }, []);
 
@@ -614,6 +681,7 @@ export default function App() {
   const loading = isLive && raw === undefined;
   const usable = isLive && isUsable(data);
   const fresh = freshness(data?.captured_at, usable);
+  const alert = isLive && !loading ? healthAlert(healthMap[activeCat], data?.captured_at) : null;
 
   const companyCounts = useMemo(() => {
     const counts = { Other: 0 };
@@ -728,6 +796,7 @@ export default function App() {
             ))}
           </nav>
           <main className="content">
+            <HealthBanner alert={alert} />
             {!isLive ? (
               tab === 'Methodology' ? <Methodology /> : <PlannedCategory cat={cat} />
             ) : tab === 'Methodology' ? (
