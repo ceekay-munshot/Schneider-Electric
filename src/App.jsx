@@ -35,6 +35,7 @@ function normalize(raw) {
     rows_this_scrape: rows,
     total_rows_on_record: typeof raw.total_rows_on_record === 'number' ? raw.total_rows_on_record : rows,
     scrapes_on_record: typeof raw.scrapes_on_record === 'number' ? raw.scrapes_on_record : raw.captured_at ? 1 : null,
+    history: Array.isArray(raw.history) ? raw.history.filter((h) => h && h.captured_at) : [],
     products,
   };
 }
@@ -158,16 +159,197 @@ function PlannedCategory({ cat }) {
 
 // ---- tab bodies (live category) -------------------------------------------
 
-// Prominent top banner — becomes the headline analytics once 2+ captures exist.
-function PriceTrends() {
+// ---- period-over-period trends ---------------------------------------------
+
+const DAY = 864e5;
+const PERIODS = [
+  { key: 'WoW', name: 'Week over week', days: 7 },
+  { key: 'MoM', name: 'Month over month', days: 30 },
+  { key: 'QoQ', name: 'Quarter over quarter', days: 91 },
+];
+
+function fmtDay(iso) {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return '—';
+  return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+function fmtUsd(n, digits = 2) {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}
+
+// Compare the latest capture against the one closest to (latest - days).
+// A baseline only qualifies inside [0.5x, 2x] of the window, so a "WoW" figure
+// is never quietly computed against a months-old capture. Like-for-like: the
+// average moves only on items priced in BOTH captures, immune to catalog mix
+// shifts (new brands / delisted rows).
+function comparePeriod(history, days) {
+  const latest = history[history.length - 1];
+  const tLatest = new Date(latest.captured_at).getTime();
+  const lo = 0.5 * days * DAY;
+  const hi = 2 * days * DAY;
+  let base = null;
+  let best = Infinity;
+  for (const h of history.slice(0, -1)) {
+    const gap = tLatest - new Date(h.captured_at).getTime();
+    if (gap < lo || gap > hi) continue;
+    const dist = Math.abs(gap - days * DAY);
+    if (dist < best) {
+      best = dist;
+      base = h;
+    }
+  }
+  if (!base) {
+    const span = (tLatest - new Date(history[0].captured_at).getTime()) / DAY;
+    return { active: false, needDays: Math.ceil(0.5 * days), haveDays: Math.max(0, Math.floor(span)) };
+  }
+  const gapDays = Math.round((tLatest - new Date(base.captured_at).getTime()) / DAY);
+  if (latest.prices && base.prices) {
+    const keys = Object.keys(latest.prices).filter((k) => typeof base.prices[k] === 'number');
+    if (keys.length >= 5) {
+      const now = keys.reduce((s, k) => s + latest.prices[k], 0) / keys.length;
+      const then = keys.reduce((s, k) => s + base.prices[k], 0) / keys.length;
+      return { active: true, matched: keys.length, now, then, gapDays, baseDate: base.captured_at };
+    }
+  }
+  if (typeof latest.avg_price === 'number' && typeof base.avg_price === 'number') {
+    return { active: true, matched: 0, now: latest.avg_price, then: base.avg_price, gapDays, baseDate: base.captured_at };
+  }
+  return { active: false, needDays: Math.ceil(0.5 * days), haveDays: 0 };
+}
+
+function PeriodCard({ period, cmp }) {
+  if (!cmp.active) {
+    const pct = Math.min(100, Math.round((cmp.haveDays / cmp.needDays) * 100));
+    return (
+      <div className="period inactive">
+        <div className="period-key">
+          <span>{period.key}</span>
+          <span className="period-name">{period.name}</span>
+        </div>
+        <p className="period-wait">
+          Needs a baseline capture ≥{cmp.needDays}d old — history spans {cmp.haveDays}d so far.
+        </p>
+        <span className="cov-bar period-progress">
+          <span className="cov-fill" style={{ width: `${pct}%` }} />
+        </span>
+      </div>
+    );
+  }
+  const pct = cmp.then > 0 ? ((cmp.now - cmp.then) / cmp.then) * 100 : 0;
+  const tone = Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down';
+  const arrow = tone === 'up' ? '▲' : tone === 'down' ? '▼' : '–';
+  return (
+    <div className="period">
+      <div className="period-key">
+        <span>{period.key}</span>
+        <span className="period-name">{period.name}</span>
+      </div>
+      <div className={`period-delta delta-${tone} mono`}>
+        <span className="delta-arrow">{arrow}</span> {Math.abs(pct).toFixed(2)}%
+      </div>
+      <div className="period-vals mono">
+        {fmtUsd(cmp.then)} → {fmtUsd(cmp.now)}
+      </div>
+      <div className="period-base">
+        vs {fmtDay(cmp.baseDate)} · {cmp.gapDays}d gap ·{' '}
+        {cmp.matched ? `${num(cmp.matched)} matched items` : 'all priced items (mix may vary)'}
+      </div>
+    </div>
+  );
+}
+
+function Sparkline({ history }) {
+  const pts = history.filter((h) => typeof h.avg_price === 'number');
+  if (pts.length < 2) return null;
+  const W = 600;
+  const H = 56;
+  const PX = 5;
+  const PY = 9;
+  const ts = pts.map((h) => new Date(h.captured_at).getTime());
+  const vs = pts.map((h) => h.avg_price);
+  const t0 = Math.min(...ts);
+  const t1 = Math.max(...ts);
+  let v0 = Math.min(...vs);
+  let v1 = Math.max(...vs);
+  if (v1 - v0 < 1e-9) {
+    v0 -= 1;
+    v1 += 1;
+  }
+  const x = (t) => PX + ((t - t0) / Math.max(1, t1 - t0)) * (W - 2 * PX);
+  const y = (v) => H - PY - ((v - v0) / (v1 - v0)) * (H - 2 * PY);
+  const line = pts.map((h, i) => `${x(ts[i]).toFixed(2)},${y(vs[i]).toFixed(2)}`).join(' ');
+  const area = `${PX},${H - 2} ${line} ${W - PX},${H - 2}`;
+  return (
+    <div className="spark-wrap">
+      <svg
+        className="spark"
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`Average price across ${pts.length} captures, ${fmtUsd(vs[0])} on ${fmtDay(pts[0].captured_at)} to ${fmtUsd(vs[vs.length - 1])} on ${fmtDay(pts[pts.length - 1].captured_at)}`}
+      >
+        <polygon className="spark-area" points={area} />
+        <polyline className="spark-line" points={line} vectorEffect="non-scaling-stroke" />
+        {pts.map((h, i) => (
+          // zero-length round-capped path = a dot that stays circular even
+          // though the svg stretches (preserveAspectRatio="none")
+          <path
+            key={h.captured_at}
+            className={`spark-dot ${i === pts.length - 1 ? 'last' : ''}`}
+            d={`M ${x(ts[i]).toFixed(2)} ${y(vs[i]).toFixed(2)} l 0.0001 0`}
+            vectorEffect="non-scaling-stroke"
+          >
+            <title>{`${fmtDay(h.captured_at)} · ${fmtUsd(h.avg_price)} avg · ${num(h.priced)} priced`}</title>
+          </path>
+        ))}
+      </svg>
+      <div className="spark-axis mono">
+        <span>{fmtDay(pts[0].captured_at)}</span>
+        <span className="spark-cap">avg of all priced items per capture · catalog mix varies</span>
+        <span>
+          {fmtUsd(vs[vs.length - 1])} avg · {fmtDay(pts[pts.length - 1].captured_at)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Prominent top banner — the headline analytics once 2+ captures exist.
+function PriceTrends({ history }) {
+  const ready = history.length >= 2;
   return (
     <section className="card trends-top">
-      <h3>Average Price Trends · Period-over-Period</h3>
-      <p className="muted">
-        Period-over-period analytics (WoW / MoM / QoQ) activate once at least two captures are on record. Until a second
-        capture exists, no historical or comparative figures are shown.
-      </p>
-      <div className="periods-empty">Awaiting a second capture to compute movement.</div>
+      <div className="trends-head">
+        <h3>Average Price Trends · Period-over-Period</h3>
+        {ready && (
+          <span className="trends-span mono">
+            {num(history.length)} captures · {fmtDay(history[0].captured_at)} → {fmtDay(history[history.length - 1].captured_at)}
+          </span>
+        )}
+      </div>
+      {!ready ? (
+        <>
+          <p className="muted">
+            Period-over-period analytics (WoW / MoM / QoQ) activate once at least two captures are on record. Until a
+            second capture exists, no historical or comparative figures are shown.
+          </p>
+          <div className="periods-empty">Awaiting a second capture to compute movement.</div>
+        </>
+      ) : (
+        <>
+          <p className="muted trends-note">
+            Like-for-like change in average price over items priced in both captures — new or delisted catalog rows
+            never move the needle. Each card states its real baseline date.
+          </p>
+          <div className="periods">
+            {PERIODS.map((p) => (
+              <PeriodCard key={p.key} period={p} cmp={comparePeriod(history, p.days)} />
+            ))}
+          </div>
+          <Sparkline history={history} />
+        </>
+      )}
     </section>
   );
 }
@@ -176,7 +358,7 @@ function PriceTrends() {
 function Overview({ data, catName }) {
   return (
     <>
-      <PriceTrends />
+      <PriceTrends history={data.history} />
       <section className="stats">
         <StatCard label="Category" value={catName} />
         <StatCard label="Capture status" value={<span className="ok-pill">{data.status}</span>} />
