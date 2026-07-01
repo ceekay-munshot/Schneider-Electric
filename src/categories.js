@@ -1,42 +1,45 @@
-// Product categories for the tracker.
-// - "live"    : has captured data (loaded from public/data/latest-capture.json).
-// - "planned" : intentionally empty for now; will populate once its distributor
-//               search URL is configured and a capture runs. (captureUrl: null)
+// Product categories for the tracker — the Schneider AI-datacenter taxonomy from
+// the source PDF. UPS + Busway are the original captures; the 4 approved
+// AI-datacenter categories are live; the 3 software/service categories that
+// Graybar does not distribute are marked "unavailable" (sourced direct from
+// Schneider), shown in the nav but never captured.
 //
-// Right now only UPS is live (the 757-product Graybar capture). Everything else
-// is a placeholder you can fill in later by setting status:'live' + captureUrl.
+// - "live"        : has captured data (loaded from public/data/<slug>.json).
+// - "unavailable" : Graybar carries no catalog data for it (software / service).
 
 export const CATEGORIES = [
   {
-    group: 'Data Center Infrastructure',
+    group: 'Power, Racks & Cooling',
     items: [
       { slug: 'ups', name: 'UPS (single & three-phase)', status: 'live', dataUrl: 'data/ups.json' },
-      { slug: 'rack-pdus', name: 'Rack PDUs', status: 'planned', captureUrl: null },
       { slug: 'busway', name: 'Busway / Power Distribution', status: 'live', dataUrl: 'data/busway.json' },
-      { slug: 'mv-switchgear', name: 'MV Switchgear', status: 'planned', captureUrl: null },
-      { slug: 'transformers', name: 'MV / LV Transformers', status: 'planned', captureUrl: null },
-      { slug: 'modular-dc', name: 'Prefab / Modular Data Centers', status: 'planned', captureUrl: null },
-      { slug: 'crac-crah', name: 'CRAC / CRAH Cooling Units', status: 'planned', captureUrl: null },
-      { slug: 'liquid-cooling', name: 'Liquid Cooling (CDUs, Rear-Door HX)', status: 'planned', captureUrl: null },
-      { slug: 'racks-enclosures', name: 'Racks & Enclosures (NetShelter)', status: 'planned', captureUrl: null },
-      { slug: 'dcim', name: 'DCIM Software (EcoStruxure IT)', status: 'planned', captureUrl: null },
-      { slug: 'env-monitoring', name: 'Environmental Monitoring & Sensors', status: 'planned', captureUrl: null },
-      { slug: 'kvm', name: 'KVM / Remote Access', status: 'planned', captureUrl: null },
-      { slug: 'cabling', name: 'Structured Cabling & Fiber Management', status: 'planned', captureUrl: null },
+      { slug: 'rack-pdus', name: 'Rack PDUs', status: 'live', dataUrl: 'data/rack-pdus.json' },
+      { slug: 'rack-systems', name: 'Rack Systems (NetShelter)', status: 'live', dataUrl: 'data/rack-systems.json' },
+      { slug: 'pod-modular', name: 'Pod & Modular Infrastructure', status: 'live', dataUrl: 'data/pod-modular.json' },
+      {
+        slug: 'liquid-cooling',
+        name: 'Liquid Cooling (Motivair)',
+        status: 'unavailable',
+        note: 'Sold direct by Schneider / Motivair — Graybar does not distribute it, so there is no price data to track here.',
+      },
     ],
   },
   {
-    group: 'Electrical & Power Systems',
+    group: 'Software & Services',
     items: [
-      { slug: 'panelboards', name: 'LV Panelboards & Breakers (Square D)', status: 'planned', captureUrl: null },
-      { slug: 'ats', name: 'Automatic Transfer Switches (ATS)', status: 'planned', captureUrl: null },
-      { slug: 'power-monitoring', name: 'Power Monitoring Systems', status: 'planned', captureUrl: null },
-      { slug: 'bms', name: 'Building Management (EcoStruxure Building)', status: 'planned', captureUrl: null },
-      { slug: 'generator-controls', name: 'Generator Controls & Integration', status: 'planned', captureUrl: null },
-      { slug: 'surge', name: 'Surge Protection Devices', status: 'planned', captureUrl: null },
-      { slug: 'metering', name: 'Metering & Energy Analytics', status: 'planned', captureUrl: null },
-      { slug: 'field-services', name: 'Field Services & Maintenance (EcoCare)', status: 'planned', captureUrl: null },
-      { slug: 'sidecar', name: 'Sidecar', status: 'planned', captureUrl: null },
+      { slug: 'dcim', name: 'DCIM Software (EcoStruxure IT)', status: 'live', dataUrl: 'data/dcim.json' },
+      {
+        slug: 'reference-designs',
+        name: 'Reference Designs & Integration',
+        status: 'unavailable',
+        note: 'A Schneider engineering / integration service — no catalog products for a distributor to price.',
+      },
+      {
+        slug: 'sustainability',
+        name: 'Sustainability & Energy Mgmt',
+        status: 'unavailable',
+        note: 'A SaaS / advisory service sold direct by Schneider (EcoStruxure Resource Advisor, EcoConsult) — not carried by Graybar.',
+      },
     ],
   },
 ];
@@ -48,15 +51,17 @@ export function categoryBySlug(slug) {
 }
 
 // Parent companies for the brand filter (extend freely).
-export const COMPANIES = ['Schneider', 'Eaton', 'Vertiv', 'Chatsworth', 'nVent', 'Delta'];
+export const COMPANIES = ['Schneider', 'Eaton', 'Vertiv', 'Chatsworth', 'Panduit', 'Legrand', 'nVent', 'Delta'];
 
 // Map a granular brand string (e.g. "APC (Schneider Electric)") to its parent.
 export function companyOf(brand) {
   const b = (brand || '').toLowerCase();
   if (/schneider|\bapc\b|square ?d/.test(b)) return 'Schneider';
-  if (/eaton|tripp ?lite/.test(b)) return 'Eaton';
+  if (/eaton|tripp ?lite|b-?line|bussmann/.test(b)) return 'Eaton';
   if (/vertiv|liebert/.test(b)) return 'Vertiv';
   if (/chatsworth|\bcpi\b/.test(b)) return 'Chatsworth';
+  if (/panduit/.test(b)) return 'Panduit';
+  if (/legrand|server ?technology|middle ?atlantic|raritan|wiremold|ortronics|starline/.test(b)) return 'Legrand';
   if (/nvent|hoffman|schroff|eriflex|caddy/.test(b)) return 'nVent';
   if (/delta/.test(b)) return 'Delta';
   return 'Other';
