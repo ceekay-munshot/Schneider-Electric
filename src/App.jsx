@@ -483,6 +483,13 @@ function likeForLike(prev, curr, memberOf) {
   const tone = Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down';
   return { active: true, matched: keys.length, now, then, pct, tone, arrow: tone === 'up' ? '▲' : tone === 'down' ? '▼' : '' };
 }
+// Same key a capture uses in its prices/brand_of maps (mirror of the publish
+// script's itemKeyOf), so the current catalog can be joined back onto a cell's
+// matched items to recover titles + Graybar product links for traceability.
+function itemKeyFor(p) {
+  const k = p.item_number ?? p.sku ?? p.cat_mpn ?? p.upc ?? p.product_url;
+  return k == null ? null : String(k);
+}
 // Merge every category's representative for one bucket into a single namespaced
 // map, so the "Average" column is a true cross-category like-for-like.
 function mergedRep(cats, k) {
@@ -506,16 +513,27 @@ function mergedRep(cats, k) {
 function buildMatrix(usableCats, gran) {
   const cats = usableCats.map((c) => {
     const reps = bucketReps(c.d.history, gran);
-    return { slug: c.slug, name: c.name, reps, keysDesc: [...reps.keys()].sort().reverse() };
+    // item -> {title, url} from the latest capture, to name & link a cell's items
+    const meta = new Map();
+    for (const p of c.d.products || []) {
+      const k = itemKeyFor(p);
+      if (k && !meta.has(k)) meta.set(k, { title: p.title || null, url: p.product_url || null });
+    }
+    return { slug: c.slug, name: c.name, reps, keysDesc: [...reps.keys()].sort().reverse(), meta };
   });
+  // Only categories with >= 2 populated buckets can produce a real change at this
+  // granularity; a category with a single capture would be all-"—" noise, so it
+  // stays out of the matrix until it has enough history (its sidebar count still
+  // shows it exists).
+  const shown = cats.filter((c) => c.keysDesc.length >= 2);
   const allKeys = new Set();
-  cats.forEach((c) => c.keysDesc.forEach((k) => allKeys.add(k)));
+  shown.forEach((c) => c.keysDesc.forEach((k) => allKeys.add(k)));
   const periodKeys = [...allKeys].sort().reverse(); // newest first
 
   // Columns: per category, the parent companies with >= MIN_MATCH priced items
   // in that category's newest bucket get their own sub-column (ordered by count),
   // plus an "All" column. Degenerate (all-"—") brand columns are pruned.
-  const groups = cats.map((c) => {
+  const groups = shown.map((c) => {
     const newestKey = periodKeys.find((k) => c.reps.has(k));
     const rep = newestKey ? c.reps.get(newestKey) : null;
     const counts = {};
@@ -538,9 +556,11 @@ function buildMatrix(usableCats, gran) {
   const rows = rowKeys.map((k, i) => {
     const prevKey = periodKeys[i + 1];
     const cells = new Map();
-    cells.set('avg', likeForLike(mergedRep(cats, prevKey), mergedRep(cats, k), null));
+    const avg = likeForLike(mergedRep(shown, prevKey), mergedRep(shown, k), null);
+    avg.ref = { kind: 'avg', curKey: k, baseKey: prevKey, colLabel: 'Average · all categories' };
+    cells.set('avg', avg);
     for (const g of groups) {
-      const c = cats.find((x) => x.slug === g.slug);
+      const c = shown.find((x) => x.slug === g.slug);
       const cur = c.reps.get(k);
       // per-category baseline = this cat's own next-older populated bucket
       const ci = c.keysDesc.indexOf(k);
@@ -548,11 +568,20 @@ function buildMatrix(usableCats, gran) {
       const bas = basK ? c.reps.get(basK) : null;
       for (const sc of g.subCols) {
         const memberOf = sc.company ? (key, e) => e.brand_of && e.brand_of[key] === sc.company : null;
-        cells.set(sc.id, cur ? likeForLike(bas, cur, memberOf) : { active: false });
+        const cc = cur ? likeForLike(bas, cur, memberOf) : { active: false };
+        cc.ref = {
+          kind: sc.company ? 'brand' : 'all',
+          slug: g.slug,
+          company: sc.company,
+          curKey: k,
+          baseKey: basK,
+          colLabel: `${g.name} · ${sc.brand}`,
+        };
+        cells.set(sc.id, cc);
       }
     }
     let repIso = null;
-    for (const c of cats) {
+    for (const c of shown) {
       const r = c.reps.get(k);
       if (r && (!repIso || new Date(r.captured_at) > new Date(repIso))) repIso = r.captured_at;
     }
@@ -576,6 +605,7 @@ function buildMatrix(usableCats, gran) {
     groups,
     leaf,
     rows,
+    cats: shown, // kept so a clicked cell can be traced back to its items on demand
     kpi: {
       overall: overall && overall.active ? overall : null,
       riser: up && up.pct >= 0.005 ? up : null, // non-flat only ("nothing rose" reads as —)
@@ -584,29 +614,255 @@ function buildMatrix(usableCats, gran) {
   };
 }
 
-function MatrixCell({ cell, className = '' }) {
-  if (!cell || !cell.active) {
-    const t =
-      cell && typeof cell.matched === 'number'
-        ? `${cell.matched} matched — need ${MIN_MATCH}`
-        : 'no comparable prior period';
-    return (
-      <td className={`matrix-cell cell-na mono ${className}`} title={t}>
-        —
-      </td>
-    );
+// A human-readable label for a period bucket key ("Wk Jun 22" / "Jun '26" / "Q2 '26").
+function keyLabel(matrix, key, gran) {
+  if (!key) return null;
+  if (gran !== 'week') {
+    const [y, tail] = key.split('-');
+    return gran === 'month' ? `${MONTHS[Number(tail) - 1]} '${y.slice(2)}` : `${tail} '${y.slice(2)}`;
   }
+  let iso = null;
+  for (const c of matrix.cats) {
+    const r = c.reps.get(key);
+    if (r && (!iso || new Date(r.captured_at) > new Date(iso))) iso = r.captured_at;
+  }
+  return iso ? `Wk ${fmtDay(weekStartIso(iso))}` : key;
+}
+
+// Reconstruct, on demand, exactly how one cell was computed: its component
+// breakdown one level down (categories for Average, brands for a category "All")
+// and the full set of matched items with then→now prices and Graybar links.
+function computeDetail(matrix, ref, gran) {
+  const { kind, slug, company, curKey, baseKey, colLabel } = ref;
+  const curLabel = keyLabel(matrix, curKey, gran);
+  const baseLabel = keyLabel(matrix, baseKey, gran);
+  const base = { colLabel, curLabel, baseLabel, kind };
+
+  let cur;
+  let prev;
+  let metaFor;
+  let groupOf = null;
+  if (kind === 'avg') {
+    cur = mergedRep(matrix.cats, curKey);
+    prev = baseKey ? mergedRep(matrix.cats, baseKey) : null;
+    metaFor = (nk) => {
+      const i = nk.indexOf('::');
+      const s = nk.slice(0, i);
+      const key = nk.slice(i + 2);
+      return { key, slug: s, ...(matrix.cats.find((c) => c.slug === s)?.meta.get(key) || {}) };
+    };
+    groupOf = (nk) => nk.slice(0, nk.indexOf('::')); // by category slug
+  } else {
+    const cat = matrix.cats.find((c) => c.slug === slug);
+    cur = cat ? cat.reps.get(curKey) : null;
+    prev = cat && baseKey ? cat.reps.get(baseKey) : null;
+    metaFor = (k) => ({ key: k, slug, ...(cat?.meta.get(k) || {}) });
+    if (kind === 'all') groupOf = (k) => (cur && cur.brand_of ? cur.brand_of[k] : 'Other'); // by brand
+  }
+
+  if (!cur || !cur.prices || !prev || !prev.prices) {
+    return { ...base, active: false, matched: 0, items: [], components: [], reason: 'no comparable prior period on record' };
+  }
+  const inCo = company ? (k) => cur.brand_of && cur.brand_of[k] === company && prev.brand_of && prev.brand_of[k] === company : null;
+  const keys = Object.keys(cur.prices).filter((k) => typeof prev.prices[k] === 'number' && (!inCo || inCo(k)));
+
+  const items = keys
+    .map((k) => {
+      const m = metaFor(k);
+      const then = prev.prices[k];
+      const now = cur.prices[k];
+      const pct = then > 0 ? ((now - then) / then) * 100 : 0;
+      return { key: m.key, title: m.title || null, url: m.url || null, then, now, pct };
+    })
+    .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+
+  let components = [];
+  if (groupOf) {
+    const byG = new Map();
+    for (const k of keys) {
+      const g = groupOf(k) || 'Other';
+      if (!byG.has(g)) byG.set(g, []);
+      byG.get(g).push(k);
+    }
+    components = [...byG.entries()]
+      .map(([g, ks]) => {
+        const n = ks.reduce((s, k) => s + cur.prices[k], 0) / ks.length;
+        const t = ks.reduce((s, k) => s + prev.prices[k], 0) / ks.length;
+        const pct = t > 0 ? ((n - t) / t) * 100 : 0;
+        const label = kind === 'avg' ? matrix.cats.find((c) => c.slug === g)?.name || g : g;
+        return { label, matched: ks.length, pct };
+      })
+      .sort((a, b) => b.matched - a.matched);
+  }
+
+  const now = items.length ? items.reduce((s, x) => s + x.now, 0) / items.length : null;
+  const then = items.length ? items.reduce((s, x) => s + x.then, 0) / items.length : null;
+  const pct = then ? ((now - then) / then) * 100 : 0;
+  return {
+    ...base,
+    active: items.length >= MIN_MATCH,
+    matched: items.length,
+    then,
+    now,
+    pct,
+    tone: Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down',
+    components,
+    items,
+  };
+}
+
+function toneOf(pct) {
+  return Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down';
+}
+function signedPct(pct) {
+  const t = toneOf(pct);
+  return `${t === 'up' ? '▲' : t === 'down' ? '▼' : ''}${Math.abs(pct).toFixed(2)}%`;
+}
+
+function CellDetailModal({ detail, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  if (!detail) return null;
   return (
-    <td
-      className={`matrix-cell cell-${cell.tone} mono ${className}`}
-      title={`${num(cell.matched)} matched · ${fmtUsd(cell.then)} → ${fmtUsd(cell.now)}`}
-    >
+    <div className="mtx-modal-backdrop" onClick={onClose}>
+      <div
+        className="mtx-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${detail.colLabel} · ${detail.curLabel}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button className="mtx-modal-x" onClick={onClose} aria-label="Close" autoFocus>
+          ×
+        </button>
+        <div className="mtx-modal-body">
+        <div className="mtx-modal-head">
+          <h3>{detail.colLabel}</h3>
+          <p className="muted">
+            {detail.curLabel}
+            {detail.baseLabel ? <> vs {detail.baseLabel}</> : null}
+          </p>
+        </div>
+
+        {detail.active ? (
+          <>
+            <div className={`mtx-modal-big mono kpi-${detail.tone}`}>{signedPct(detail.pct)}</div>
+            <div className="mtx-modal-sub mono">
+              {fmtUsd(detail.then)} → {fmtUsd(detail.now)} · like-for-like avg over {num(detail.matched)} items priced in
+              both periods
+            </div>
+            <p className="mtx-modal-method">
+              Only items priced in <strong>both</strong> periods move this number, so new or delisted products never
+              distort it. Prices are captured from authenticated Graybar sessions — click an item to open its Graybar
+              page.
+            </p>
+
+            {detail.components.length > 0 && (
+              <div className="mtx-modal-section">
+                <div className="mtx-modal-label">
+                  Breakdown · {detail.kind === 'avg' ? 'by category' : 'by brand'}
+                </div>
+                {detail.components.map((c) => (
+                  <div className="mtx-comp-row" key={c.label}>
+                    <span className="mtx-comp-name">{c.label}</span>
+                    <span className="mono muted">{num(c.matched)} items</span>
+                    <span className={`mono kpi-${toneOf(c.pct)}`}>{signedPct(c.pct)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mtx-modal-section">
+              <div className="mtx-modal-label">Every contributing item · biggest move first</div>
+              <div className="mtx-items">
+                {detail.items.map((it) => (
+                  <div className="mtx-item" key={it.key}>
+                    <span className="mtx-item-name">
+                      {it.url ? (
+                        <a href={it.url} target="_blank" rel="noreferrer noopener">
+                          {it.title || it.key}
+                        </a>
+                      ) : (
+                        it.title || it.key
+                      )}
+                      {it.title ? <span className="mtx-item-key mono"> · {it.key}</span> : null}
+                    </span>
+                    <span className="mtx-item-px mono">
+                      {fmtUsd(it.then)} → {fmtUsd(it.now)}
+                    </span>
+                    <span className={`mtx-item-pct mono kpi-${toneOf(it.pct)}`}>{signedPct(it.pct)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="mtx-modal-section">
+            <div className="mtx-modal-big mono cell-na">—</div>
+            <p className="muted">
+              {detail.reason
+                ? 'No comparable prior period yet — this is the earliest capture at this granularity, so there is nothing to compare against.'
+                : `Only ${num(detail.matched)} item${detail.matched === 1 ? ' was' : 's were'} priced in both periods — at least ${MIN_MATCH} are needed for a trustworthy average, so this cell is deliberately left blank rather than shown as a shaky number.`}
+            </p>
+            {detail.items.length > 0 && (
+              <div className="mtx-items">
+                {detail.items.map((it) => (
+                  <div className="mtx-item" key={it.key}>
+                    <span className="mtx-item-name">
+                      {it.url ? (
+                        <a href={it.url} target="_blank" rel="noreferrer noopener">
+                          {it.title || it.key}
+                        </a>
+                      ) : (
+                        it.title || it.key
+                      )}
+                    </span>
+                    <span className="mtx-item-px mono">
+                      {fmtUsd(it.then)} → {fmtUsd(it.now)}
+                    </span>
+                    <span className={`mtx-item-pct mono kpi-${toneOf(it.pct)}`}>{signedPct(it.pct)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MatrixCell({ cell, className = '', onSelect }) {
+  const active = cell && cell.active;
+  const toneCls = active ? `cell-${cell.tone}` : 'cell-na';
+  const inner = active ? (
+    <>
       {cell.arrow && (
         <span className="cell-arrow" aria-hidden="true">
           {cell.arrow}
         </span>
       )}
       {Math.abs(cell.pct).toFixed(2)}%
+    </>
+  ) : (
+    '—'
+  );
+  const clickable = cell && cell.ref && onSelect;
+  return (
+    <td className={`matrix-cell ${toneCls} mono ${className}`}>
+      {clickable ? (
+        <button type="button" className="mtx-cell-btn" onClick={() => onSelect(cell.ref)} title="Trace how this is calculated">
+          {inner}
+        </button>
+      ) : (
+        <span className="mtx-cell-static">{inner}</span>
+      )}
     </td>
   );
 }
@@ -672,7 +928,7 @@ function MatrixKPIs({ granShort, kpi, captures, fresh, periods }) {
   );
 }
 
-function MatrixTable({ groups, leaf, rows, gran }) {
+function MatrixTable({ groups, leaf, rows, gran, onSelect }) {
   return (
     <div className="matrix-wrap">
       <table className="matrix">
@@ -712,9 +968,14 @@ function MatrixTable({ groups, leaf, rows, gran }) {
                 <span className="period-label">{periodRowLabel(row, gran)}</span>
                 {row.isLive && <span className="period-tag">to-date</span>}
               </th>
-              <MatrixCell className="col-avg" cell={row.cells.get('avg')} />
+              <MatrixCell className="col-avg" cell={row.cells.get('avg')} onSelect={onSelect} />
               {leaf.map((col) => (
-                <MatrixCell key={col.id} className={col.groupStart ? 'col-group-start' : ''} cell={row.cells.get(col.id)} />
+                <MatrixCell
+                  key={col.id}
+                  className={col.groupStart ? 'col-group-start' : ''}
+                  cell={row.cells.get(col.id)}
+                  onSelect={onSelect}
+                />
               ))}
             </tr>
           ))}
@@ -741,12 +1002,16 @@ function MatrixLegend() {
       <span className="lg-item">
         <b>—</b> = fewer than {MIN_MATCH} matched items / still accumulating
       </span>
+      <span className="lg-sep">·</span>
+      <span className="lg-item lg-hint">click any cell to trace it to source</span>
     </div>
   );
 }
 
 function AnalysisMatrix({ dataMap, granularity, onGranularity }) {
   const anyLoading = LIVE_CATEGORIES.some((c) => dataMap[c.slug] === undefined);
+  const [detailRef, setDetailRef] = useState(null);
+  useEffect(() => setDetailRef(null), [granularity]); // period keys change with granularity
 
   const model = useMemo(() => {
     const usableCats = LIVE_CATEGORIES.map((c) => ({ slug: c.slug, name: c.name, d: normalize(dataMap[c.slug]) })).filter(
@@ -833,6 +1098,7 @@ function AnalysisMatrix({ dataMap, granularity, onGranularity }) {
     );
   }
 
+  const detail = detailRef ? computeDetail(model.matrix, detailRef, granularity) : null;
   return (
     <section className="card">
       {header}
@@ -843,8 +1109,15 @@ function AnalysisMatrix({ dataMap, granularity, onGranularity }) {
         periods={model.periodCounts[granularity]}
         fresh={model.fresh}
       />
-      <MatrixTable groups={model.matrix.groups} leaf={model.matrix.leaf} rows={rows} gran={granularity} />
+      <MatrixTable
+        groups={model.matrix.groups}
+        leaf={model.matrix.leaf}
+        rows={rows}
+        gran={granularity}
+        onSelect={setDetailRef}
+      />
       <MatrixLegend />
+      {detail && <CellDetailModal detail={detail} onClose={() => setDetailRef(null)} />}
     </section>
   );
 }

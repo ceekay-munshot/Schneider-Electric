@@ -1146,11 +1146,38 @@ a:hover {
   background: transparent;
 }
 .matrix-cell {
-  padding: 6px 10px;
+  padding: 0; /* padding lives on the inner button/span so the whole cell is the hit target */
   text-align: right;
   border-bottom: 1px solid var(--line-soft);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.mtx-cell-btn,
+.mtx-cell-static {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: right;
+  font: inherit;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mtx-cell-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: transform 100ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.mtx-cell-btn:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .mtx-cell-btn:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+  }
 }
 .matrix-cell .cell-arrow {
   font-size: 8.5px;
@@ -1247,6 +1274,172 @@ a:hover {
   color: var(--muted-2);
 }
 
+.lg-hint {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* cell-trace modal */
+.mtx-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 45, 75, 0.28);
+  backdrop-filter: blur(2px);
+  animation: mtx-fade 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes mtx-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.mtx-modal {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(20, 60, 110, 0.22);
+  overflow: hidden;
+  animation: mtx-pop 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes mtx-pop {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.mtx-modal-x {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms, transform 100ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.mtx-modal-x:hover {
+  background: #f0f7ff;
+}
+.mtx-modal-x:active {
+  transform: scale(0.94);
+}
+.mtx-modal-body {
+  overflow-y: auto;
+  padding: 20px 22px;
+}
+.mtx-modal-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #143458;
+  padding-right: 28px;
+}
+.mtx-modal-head p {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+.mtx-modal-big {
+  margin-top: 12px;
+  font-size: 30px;
+  font-weight: 750;
+  line-height: 1;
+}
+.mtx-modal-sub {
+  margin-top: 7px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.mtx-modal-method {
+  margin: 11px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+.mtx-modal-section {
+  margin-top: 15px;
+}
+.mtx-modal-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #34557e;
+  margin-bottom: 6px;
+}
+.mtx-comp-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+.mtx-comp-name {
+  font-weight: 600;
+  color: #294160;
+}
+.mtx-items {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.mtx-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+.mtx-item:last-child {
+  border-bottom: none;
+}
+.mtx-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #294160;
+}
+.mtx-item-key {
+  color: var(--muted-2);
+  font-size: 10.5px;
+}
+.mtx-item-px {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mtx-item-pct {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live-dot {
     animation: none;
@@ -1259,6 +1452,16 @@ a:hover {
   }
   .gran-pill:active {
     transform: none;
+  }
+  .mtx-cell-btn {
+    transition: none;
+  }
+  .mtx-cell-btn:active {
+    transform: none;
+  }
+  .mtx-modal-backdrop,
+  .mtx-modal {
+    animation: none;
   }
   @starting-style {
     .matrix-wrap {
