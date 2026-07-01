@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       category:
-        description: "Category to capture: all, ups, or busway"
+        description: "Category to capture: all, or a slug (ups, busway, rack-pdus, rack-systems, dcim, pod-modular)"
         type: string
         default: "all"
       debug:
@@ -31,7 +31,8 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # 120 min: Rack Systems (~2,850 products, full enrichment) is the long pole.
+    timeout-minutes: 120
 
     # One matrix slice per live category, run sequentially (max-parallel: 1) so
     # their commits to public/data/<slug>.json never race. Add a category by
@@ -45,6 +46,14 @@ jobs:
             url: "https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3ATripp+Lite+%28Eaton%29%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ALiebert+%28Vertiv%29%3Bbrands%3AEaton%3Bbrands%3AChatsworth&text=ups&enablePartNumberSearch="
           - slug: busway
             url: "https://www.graybar.com/search/?q=query%3Abusway%3Bsort%3Arelevance&text=busway"
+          - slug: rack-pdus
+            url: "https://www.graybar.com/search/?q=query%3Arack+pdu%3Bsort%3Arelevance%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ALiebert+%28Vertiv%29%3Bbrands%3AServer+Technology%3Bbrands%3AChatsworth%3Bbrands%3ATripp+Lite+%28Eaton%29&text=rack+pdu"
+          - slug: rack-systems
+            url: "https://www.graybar.com/search/?q=query%3Aserver+rack%3Bsort%3Arelevance%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3AChatsworth%3Bbrands%3AB-Line+%28Eaton%29%3Bbrands%3APanduit%3Bbrands%3ATripp+Lite+%28Eaton%29&text=server+rack"
+          - slug: dcim
+            url: "https://www.graybar.com/search/?text=EcoStruxure+IT"
+          - slug: pod-modular
+            url: "https://www.graybar.com/search/?text=micro+data+center"
 
     env:
       GRAYBAR_EMAIL: ${{ secrets.GRAYBAR_EMAIL }}

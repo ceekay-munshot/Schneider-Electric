@@ -144,14 +144,14 @@ function EmptyState({ data }) {
 }
 
 function PlannedCategory({ cat }) {
+  const unavailable = cat.status === 'unavailable';
   return (
     <div className="card empty">
-      <div className="empty-tag">PLANNED CATEGORY</div>
+      <div className="empty-tag">{unavailable ? 'NOT ON GRAYBAR' : 'PLANNED CATEGORY'}</div>
       <h2>{cat.name}</h2>
       <p>
-        This category isn’t captured yet. It will populate once its distributor search URL is configured and the weekly
-        capture runs. <strong>UPS (single &amp; three-phase)</strong> is the first live category — the rest are scaffolded
-        and intentionally empty.
+        {cat.note ||
+          'This category isn’t captured yet. It will populate once its distributor search URL is configured and the weekly capture runs.'}
       </p>
     </div>
   );
@@ -779,7 +779,9 @@ export default function App() {
                     onClick={() => selectCategory(it.slug)}
                   >
                     <span className="catitem-name">{it.name}</span>
-                    <span className="catitem-count">{live ? catCount(it.slug) : 'soon'}</span>
+                    <span className="catitem-count">
+                      {live ? catCount(it.slug) : it.status === 'unavailable' ? 'n/a' : 'soon'}
+                    </span>
                   </button>
                 );
               })}
