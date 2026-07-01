@@ -20,6 +20,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { companyOf } from '../src/categories.js';
 
 const SRC = process.argv[2] || 'output/graybar-ups-latest.json';
 const OUT = process.argv[3] || 'public/data/latest-capture.json';
@@ -93,9 +94,13 @@ function isInStock(p) {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-/** Compact per-capture history entry: summary stats + item→price map. */
+/** Compact per-capture history entry: summary stats + item→price map, plus an
+ * item→parent-company map (brand_of) so the dashboard can compute per-brand
+ * like-for-like price change without storing (and risking drift on) per-company
+ * aggregates. brand_of is keyed identically to prices (priced items only). */
 function historyEntryOf(capturedAt, products) {
   const prices = {};
+  const brand_of = {};
   const values = [];
   let inStock = 0;
   for (const p of products) {
@@ -103,7 +108,9 @@ function historyEntryOf(capturedAt, products) {
     const v = priceValueOf(p);
     const k = itemKeyOf(p);
     if (v != null && k != null) {
-      prices[String(k)] = round2(v);
+      const key = String(k);
+      prices[key] = round2(v);
+      brand_of[key] = companyOf(p.brand); // priced items only -> keys(brand_of) === keys(prices)
       values.push(v);
     }
   }
@@ -118,6 +125,7 @@ function historyEntryOf(capturedAt, products) {
     avg_price: avg,
     median_price: mid,
     prices,
+    brand_of,
   };
 }
 
@@ -161,9 +169,12 @@ async function main() {
   history.set(raw.captured_at, historyEntryOf(raw.captured_at, products));
 
   const entries = [...history.values()].sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
-  // Older entries keep summary stats only — drop their bulky price maps.
+  // Older entries keep summary stats only — drop their bulky per-item maps.
   entries.forEach((h, i) => {
-    if (i < entries.length - PRICE_MAP_KEEP) delete h.prices;
+    if (i < entries.length - PRICE_MAP_KEEP) {
+      delete h.prices;
+      delete h.brand_of;
+    }
   });
 
   const newest = entries[entries.length - 1];

@@ -76,7 +76,9 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
   flex-shrink: 0;
+  max-width: 100%; /* let flex-wrap engage instead of overflowing the header on mobile */
 }
 
 .badge {
@@ -405,6 +407,7 @@ body {
 /* tabs */
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   background: #f3f9ff;
   border: 1px solid var(--line);
@@ -910,4 +913,356 @@ a:hover {
   text-align: center;
   font-size: 11.5px;
   color: var(--muted-2);
+}
+
+/* ---- analysis matrix (Analysis tab) --------------------------------------- */
+.matrix-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.matrix-titles h3 {
+  margin: 0;
+}
+.matrix-sub {
+  margin: 6px 0 0;
+  max-width: 640px;
+  font-size: 12px;
+}
+.matrix-state {
+  margin-top: 14px;
+}
+.matrix-accum {
+  margin-top: 14px;
+  text-align: left;
+  line-height: 1.55;
+}
+
+/* granularity toggle (segmented pills) */
+.gran-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: #f3f9ff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.gran-pill {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px 13px;
+  border-radius: 999px;
+  transition: color 120ms, background 120ms cubic-bezier(0.23, 1, 0.32, 1), transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.gran-pill:active {
+  transform: scale(0.97);
+}
+.gran-pill.on {
+  color: #fff;
+  border-color: #4f97df;
+  background: linear-gradient(135deg, #6fb1ea 0%, #4f97df 100%);
+}
+@media (hover: hover) and (pointer: fine) {
+  .gran-pill:not(.on):hover {
+    color: var(--accent);
+    background: #eaf3fc;
+  }
+}
+.gran-abbr {
+  display: none;
+}
+/* Narrow screens: stack the toggle full-width under the title and use the
+   short WoW/MoM/QoQ labels so the segmented control never forces page width. */
+@media (max-width: 560px) {
+  .matrix-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .gran-toggle {
+    width: 100%;
+  }
+  .gran-pill {
+    flex: 1;
+    padding: 7px 6px;
+    text-align: center;
+  }
+  .gran-full {
+    display: none;
+  }
+  .gran-abbr {
+    display: inline;
+  }
+}
+
+/* KPI strip */
+.matrix-kpis {
+  margin-top: 14px;
+}
+.kpi-up {
+  color: #c05661;
+}
+.kpi-down {
+  color: var(--green-deep);
+}
+.kpi-flat {
+  color: #34557e;
+}
+.kpi-mover {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.kpi-where {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.kpi-fresh {
+  font-size: 10px;
+  padding: 2px 8px;
+}
+
+/* the grid */
+.matrix-wrap {
+  --mtx-grouph: 33px;
+  margin-top: 14px;
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  -webkit-overflow-scrolling: touch;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 240ms cubic-bezier(0.23, 1, 0.32, 1), transform 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@starting-style {
+  .matrix-wrap {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.matrix {
+  width: 100%;
+  border-collapse: separate; /* separate → sticky cells keep their borders in WebKit */
+  border-spacing: 0;
+  font-size: 12px;
+}
+/* headers (override global thead th) */
+.matrix thead th {
+  position: sticky;
+  z-index: 2;
+  background: #e3f0fb;
+  color: #34557e;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.matrix-group-row th {
+  top: 0;
+  text-align: center;
+}
+.matrix-sub-row th {
+  top: var(--mtx-grouph);
+  text-align: right;
+  font-weight: 600;
+  color: var(--muted);
+}
+.matrix-grouphead .grouphead-title {
+  display: block;
+}
+.matrix-grouphead .grouphead-sub {
+  display: block;
+  font-weight: 600;
+  font-size: 9.5px;
+  color: var(--muted-2);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.matrix-avghead,
+.matrix .sub-all,
+.matrix .col-all {
+  background: #dcebfb;
+}
+/* sticky first column */
+.matrix .col-period {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #eef5fc;
+  text-align: left;
+  min-width: 132px;
+}
+.matrix-corner {
+  z-index: 3;
+}
+.matrix-period {
+  font-weight: 600;
+  color: #294160;
+  white-space: nowrap;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.matrix-period .live-dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.matrix-period .period-tag {
+  margin-left: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #2f6fb0;
+  background: #d2e6f8;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.matrix .col-avg {
+  min-width: 88px;
+  border-left: 1px solid var(--line);
+}
+.matrix-subhead {
+  min-width: 74px;
+}
+/* group separator — continuous vertical rule top-to-bottom */
+.matrix .col-group-start {
+  border-left: 2px solid var(--line);
+}
+/* body cells */
+.matrix tbody tr:nth-child(even) {
+  background: transparent;
+}
+.matrix-cell {
+  padding: 6px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.matrix-cell .cell-arrow {
+  font-size: 8.5px;
+  margin-right: 2px;
+  vertical-align: 1px;
+}
+.cell-up {
+  color: #c05661;
+  background: #fbeef0;
+}
+.cell-down {
+  color: var(--green-deep);
+  background: #e7f6ee;
+}
+.cell-flat {
+  color: #34557e;
+}
+.cell-na {
+  color: var(--muted-2);
+}
+/* live (newest) row */
+.matrix-row.live .matrix-period,
+.matrix-row.live .cell-na,
+.matrix-row.live .cell-flat {
+  background: #eaf4ff;
+}
+.matrix-row.live .col-period {
+  background: #dcebfb;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: mtx-pulse 2.4s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+@keyframes mtx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+/* row hover — gated (CLAUDE.md), neutralize global tbody hover */
+.matrix tbody tr:hover {
+  background: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .matrix-row:not(.live):hover .matrix-cell,
+  .matrix-row:not(.live):hover .matrix-period {
+    background: #f3f9ff;
+  }
+  .matrix-row:not(.live):hover .col-period {
+    background: #e8f2fc;
+  }
+}
+
+/* legend */
+.matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.matrix-legend .live-dot {
+  display: inline-block;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+.lg-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  display: inline-block;
+  vertical-align: -1px;
+  margin-right: 5px;
+}
+.lg-swatch.up {
+  background: #fbeef0;
+  border: 1px solid #e6b7bd;
+}
+.lg-swatch.down {
+  background: #e7f6ee;
+  border: 1px solid #a6e2c8;
+}
+.lg-sep {
+  color: var(--muted-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+  .matrix-wrap {
+    transition: opacity 200ms ease;
+  }
+  .gran-pill {
+    transition: color 120ms, background 120ms;
+  }
+  .gran-pill:active {
+    transform: none;
+  }
+  @starting-style {
+    .matrix-wrap {
+      transform: none;
+    }
+  }
 }
