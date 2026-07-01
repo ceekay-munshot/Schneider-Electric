@@ -5,7 +5,7 @@ import { CATEGORIES, ALL_CATEGORIES, categoryBySlug, COMPANIES, companyOf } from
 // data/ups.json, data/busway.json). Absent/failed file -> safe empty state.
 const LIVE_CATEGORIES = ALL_CATEGORIES.filter((c) => c.status === 'live');
 
-const TABS = ['Overview', 'Table', 'Methodology'];
+const TABS = ['Analysis', 'Overview', 'Table', 'Methodology'];
 
 const COLUMNS = [
   ['title', 'Product'],
@@ -411,6 +411,444 @@ function PriceTrends({ history }) {
   );
 }
 
+// ---- cross-category analysis matrix (the "Analysis" tab) -------------------
+// TI-style price-change grid: rows = calendar periods (week / month / quarter),
+// columns = a blended "Average" + per-category brand sub-columns. Each cell is
+// the like-for-like % change between consecutive periods' representative
+// captures — only items priced in BOTH periods (and tagged that company in
+// both) move the average, so catalog-mix shifts never fake a price move. Same
+// convention as the Overview cards: ▲ up = red (cost rose), ▼ down = green.
+
+const GRANS = [
+  { key: 'week', label: 'Week on Week', short: 'WoW', noun: 'weeks' },
+  { key: 'month', label: 'Month on Month', short: 'MoM', noun: 'months' },
+  { key: 'quarter', label: 'Quarter on Quarter', short: 'QoQ', noun: 'quarters' },
+];
+const MIN_MATCH = 5;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// ISO-week number (UTC, Thursday rule).
+function isoWeek(d) {
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = (dt.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  dt.setUTCDate(dt.getUTCDate() - day + 3); // nearest Thursday
+  const firstThu = new Date(Date.UTC(dt.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((dt - firstThu) / DAY - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
+  return { year: dt.getUTCFullYear(), week };
+}
+// Calendar-bucket key for a capture (UTC). String-sortable within a granularity.
+function periodKey(iso, gran) {
+  const d = new Date(iso);
+  if (gran === 'month') return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  if (gran === 'quarter') return `${d.getUTCFullYear()}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
+  const { year, week } = isoWeek(d);
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+function weekStartIso(iso) {
+  const d = new Date(iso);
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7)); // back to Monday
+  return dt.toISOString();
+}
+function periodRowLabel(row, gran) {
+  if (gran === 'week') return `Wk ${fmtDay(weekStartIso(row.repIso))}`;
+  const [y, tail] = row.key.split('-');
+  if (gran === 'month') return `${MONTHS[Number(tail) - 1]} '${y.slice(2)}`;
+  return `${tail} '${y.slice(2)}`; // quarter: "Q2 '26"
+}
+
+// Representative capture per bucket = the latest capture in that bucket.
+function bucketReps(history, gran) {
+  const reps = new Map();
+  for (const h of history) {
+    if (!h || !h.captured_at) continue;
+    const k = periodKey(h.captured_at, gran);
+    const cur = reps.get(k);
+    if (!cur || new Date(h.captured_at) > new Date(cur.captured_at)) reps.set(k, h);
+  }
+  return reps;
+}
+
+// Like-for-like avg-price % change between two representatives over a key-set.
+// memberOf(key, entry) filters to a company; null = all priced items.
+function likeForLike(prev, curr, memberOf) {
+  if (!prev || !curr || !prev.prices || !curr.prices) return { active: false };
+  const keys = Object.keys(curr.prices).filter(
+    (k) => typeof prev.prices[k] === 'number' && (!memberOf || (memberOf(k, curr) && memberOf(k, prev))),
+  );
+  if (keys.length < MIN_MATCH) return { active: false, matched: keys.length };
+  const now = keys.reduce((s, k) => s + curr.prices[k], 0) / keys.length;
+  const then = keys.reduce((s, k) => s + prev.prices[k], 0) / keys.length;
+  const pct = then > 0 ? ((now - then) / then) * 100 : 0;
+  const tone = Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down';
+  return { active: true, matched: keys.length, now, then, pct, tone, arrow: tone === 'up' ? '▲' : tone === 'down' ? '▼' : '' };
+}
+// Merge every category's representative for one bucket into a single namespaced
+// map, so the "Average" column is a true cross-category like-for-like.
+function mergedRep(cats, k) {
+  const prices = {};
+  const brand_of = {};
+  let iso = null;
+  for (const c of cats) {
+    const r = c.reps.get(k);
+    if (!r || !r.prices) continue;
+    if (!iso || new Date(r.captured_at) > new Date(iso)) iso = r.captured_at;
+    for (const key of Object.keys(r.prices)) {
+      const nk = `${c.slug}::${key}`;
+      prices[nk] = r.prices[key];
+      if (r.brand_of) brand_of[nk] = r.brand_of[key];
+    }
+  }
+  return iso ? { captured_at: iso, prices, brand_of } : null;
+}
+
+// Build the whole matrix model for one granularity from the loaded categories.
+function buildMatrix(usableCats, gran) {
+  const cats = usableCats.map((c) => {
+    const reps = bucketReps(c.d.history, gran);
+    return { slug: c.slug, name: c.name, reps, keysDesc: [...reps.keys()].sort().reverse() };
+  });
+  const allKeys = new Set();
+  cats.forEach((c) => c.keysDesc.forEach((k) => allKeys.add(k)));
+  const periodKeys = [...allKeys].sort().reverse(); // newest first
+
+  // Columns: per category, the parent companies with >= MIN_MATCH priced items
+  // in that category's newest bucket get their own sub-column (ordered by count),
+  // plus an "All" column. Degenerate (all-"—") brand columns are pruned.
+  const groups = cats.map((c) => {
+    const newestKey = periodKeys.find((k) => c.reps.has(k));
+    const rep = newestKey ? c.reps.get(newestKey) : null;
+    const counts = {};
+    if (rep && rep.brand_of) for (const co of Object.values(rep.brand_of)) counts[co] = (counts[co] || 0) + 1;
+    const brands = Object.entries(counts)
+      .filter(([, n]) => n >= MIN_MATCH)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([co]) => co);
+    const subCols = [
+      ...brands.map((co) => ({ id: `${c.slug}:${co}`, brand: co, company: co, slug: c.slug })),
+      { id: `${c.slug}:All`, brand: 'All', company: null, slug: c.slug },
+    ];
+    return { slug: c.slug, name: c.name, subCols };
+  });
+  const leaf = groups.flatMap((g) => g.subCols.map((sc, i) => ({ ...sc, groupStart: i === 0 })));
+
+  // Rows: every populated period except the very oldest (which has no baseline).
+  const rowKeys = periodKeys.slice(0, Math.max(0, periodKeys.length - 1));
+  const rows = rowKeys.map((k, i) => {
+    const prevKey = periodKeys[i + 1];
+    const cells = new Map();
+    cells.set('avg', likeForLike(mergedRep(cats, prevKey), mergedRep(cats, k), null));
+    for (const g of groups) {
+      const c = cats.find((x) => x.slug === g.slug);
+      const cur = c.reps.get(k);
+      // per-category baseline = this cat's own next-older populated bucket
+      const ci = c.keysDesc.indexOf(k);
+      const basK = ci >= 0 ? c.keysDesc[ci + 1] : undefined;
+      const bas = basK ? c.reps.get(basK) : null;
+      for (const sc of g.subCols) {
+        const memberOf = sc.company ? (key, e) => e.brand_of && e.brand_of[key] === sc.company : null;
+        cells.set(sc.id, cur ? likeForLike(bas, cur, memberOf) : { active: false });
+      }
+    }
+    let repIso = null;
+    for (const c of cats) {
+      const r = c.reps.get(k);
+      if (r && (!repIso || new Date(r.captured_at) > new Date(repIso))) repIso = r.captured_at;
+    }
+    return { key: k, repIso, cells, isLive: i === 0 };
+  });
+
+  // KPI extremes over the live row's leaf cells.
+  let up = null;
+  let down = null;
+  if (rows[0]) {
+    for (const col of leaf) {
+      const cc = rows[0].cells.get(col.id);
+      if (!cc || !cc.active) continue;
+      const where = `${groups.find((g) => g.slug === col.slug)?.name ?? col.slug} · ${col.brand}`;
+      if (up === null || cc.pct > up.pct) up = { pct: cc.pct, tone: cc.tone, arrow: cc.arrow, where };
+      if (down === null || cc.pct < down.pct) down = { pct: cc.pct, tone: cc.tone, arrow: cc.arrow, where };
+    }
+  }
+  const overall = rows[0]?.cells.get('avg');
+  return {
+    groups,
+    leaf,
+    rows,
+    kpi: {
+      overall: overall && overall.active ? overall : null,
+      riser: up && up.pct >= 0.005 ? up : null, // non-flat only ("nothing rose" reads as —)
+      faller: down && down.pct <= -0.005 ? down : null,
+    },
+  };
+}
+
+function MatrixCell({ cell, className = '' }) {
+  if (!cell || !cell.active) {
+    const t =
+      cell && typeof cell.matched === 'number'
+        ? `${cell.matched} matched — need ${MIN_MATCH}`
+        : 'no comparable prior period';
+    return (
+      <td className={`matrix-cell cell-na mono ${className}`} title={t}>
+        —
+      </td>
+    );
+  }
+  return (
+    <td
+      className={`matrix-cell cell-${cell.tone} mono ${className}`}
+      title={`${num(cell.matched)} matched · ${fmtUsd(cell.then)} → ${fmtUsd(cell.now)}`}
+    >
+      {cell.arrow && (
+        <span className="cell-arrow" aria-hidden="true">
+          {cell.arrow}
+        </span>
+      )}
+      {Math.abs(cell.pct).toFixed(2)}%
+    </td>
+  );
+}
+
+function GranularityToggle({ value, onChange }) {
+  return (
+    <div className="gran-toggle" role="tablist" aria-label="Comparison granularity">
+      {GRANS.map((g) => (
+        <button
+          key={g.key}
+          role="tab"
+          aria-selected={value === g.key}
+          className={`gran-pill ${value === g.key ? 'on' : ''}`}
+          onClick={() => onChange(g.key)}
+        >
+          <span className="gran-full">{g.label}</span>
+          <span className="gran-abbr">{g.short}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MatrixKPIs({ granShort, kpi, captures, fresh, periods }) {
+  const mover = (m) =>
+    m ? (
+      <span className="kpi-mover">
+        <span className={`kpi-${m.tone} mono`}>
+          {m.arrow} {Math.abs(m.pct).toFixed(2)}%
+        </span>
+        <span className="kpi-where">{m.where}</span>
+      </span>
+    ) : (
+      '—'
+    );
+  return (
+    <section className="stats matrix-kpis">
+      <StatCard
+        label={`Overall ${granShort}`}
+        value={
+          kpi.overall ? (
+            <span className={`kpi-${kpi.overall.tone} mono`}>
+              {kpi.overall.arrow ? `${kpi.overall.arrow} ` : ''}
+              {Math.abs(kpi.overall.pct).toFixed(2)}%
+            </span>
+          ) : (
+            '—'
+          )
+        }
+      />
+      <StatCard label="Steepest rise" value={mover(kpi.riser)} />
+      <StatCard label="Steepest fall" value={mover(kpi.faller)} />
+      <StatCard
+        label="On record"
+        value={
+          <span className="mono">
+            {num(captures)} captures · {num(periods)} {granShort === 'WoW' ? 'wks' : granShort === 'MoM' ? 'mos' : 'qtrs'} ·{' '}
+            <span className={`kpi-fresh badge badge-${fresh.tone}`}>{fresh.label}</span>
+          </span>
+        }
+      />
+    </section>
+  );
+}
+
+function MatrixTable({ groups, leaf, rows, gran }) {
+  return (
+    <div className="matrix-wrap">
+      <table className="matrix">
+        <thead>
+          <tr className="matrix-group-row">
+            <th className="col-period matrix-corner" rowSpan={2}>
+              Period
+            </th>
+            <th className="col-avg matrix-grouphead matrix-avghead" rowSpan={2}>
+              <span className="grouphead-title">Average</span>
+              <span className="grouphead-sub">all categories</span>
+            </th>
+            {groups.map((g) => (
+              <th key={g.slug} className="matrix-grouphead col-group-start" colSpan={g.subCols.length}>
+                {g.name}
+              </th>
+            ))}
+          </tr>
+          <tr className="matrix-sub-row">
+            {groups.map((g) =>
+              g.subCols.map((sc, i) => (
+                <th
+                  key={sc.id}
+                  className={`matrix-subhead ${i === 0 ? 'col-group-start' : ''} ${sc.brand === 'All' ? 'sub-all' : ''}`}
+                >
+                  {sc.brand}
+                </th>
+              )),
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key} className={`matrix-row ${row.isLive ? 'live' : ''}`}>
+              <th scope="row" className="col-period matrix-period">
+                {row.isLive && <i className="live-dot" aria-hidden="true" />}
+                <span className="period-label">{periodRowLabel(row, gran)}</span>
+                {row.isLive && <span className="period-tag">to-date</span>}
+              </th>
+              <MatrixCell className="col-avg" cell={row.cells.get('avg')} />
+              {leaf.map((col) => (
+                <MatrixCell key={col.id} className={col.groupStart ? 'col-group-start' : ''} cell={row.cells.get(col.id)} />
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MatrixLegend() {
+  return (
+    <div className="matrix-legend">
+      <span className="lg-item">
+        <i className="lg-swatch up" /> increase (price rose)
+      </span>
+      <span className="lg-item">
+        <i className="lg-swatch down" /> decrease (price fell)
+      </span>
+      <span className="lg-sep">·</span>
+      <span className="lg-item">
+        <i className="live-dot" /> live row — updates each capture
+      </span>
+      <span className="lg-item">closed periods show realized %</span>
+      <span className="lg-item">
+        <b>—</b> = fewer than {MIN_MATCH} matched items / still accumulating
+      </span>
+    </div>
+  );
+}
+
+function AnalysisMatrix({ dataMap, granularity, onGranularity }) {
+  const anyLoading = LIVE_CATEGORIES.some((c) => dataMap[c.slug] === undefined);
+
+  const model = useMemo(() => {
+    const usableCats = LIVE_CATEGORIES.map((c) => ({ slug: c.slug, name: c.name, d: normalize(dataMap[c.slug]) })).filter(
+      (c) => isUsable(c.d) && c.d.history.length > 0,
+    );
+    if (!usableCats.length) return { usableCats };
+    // distinct populated-bucket count per granularity (for the accumulating nudge)
+    const periodCounts = {};
+    for (const g of GRANS) {
+      const set = new Set();
+      usableCats.forEach((c) => c.d.history.forEach((h) => h.captured_at && set.add(periodKey(h.captured_at, g.key))));
+      periodCounts[g.key] = set.size;
+    }
+    const captures = usableCats.reduce((s, c) => s + c.d.history.length, 0);
+    let newest = null;
+    usableCats.forEach((c) => {
+      const t = c.d.captured_at;
+      if (t && (!newest || new Date(t) > new Date(newest))) newest = t;
+    });
+    const matrix = buildMatrix(usableCats, granularity);
+    return { usableCats, periodCounts, captures, fresh: freshness(newest, true), matrix };
+  }, [dataMap, granularity]);
+
+  const granMeta = GRANS.find((g) => g.key === granularity);
+  const header = (
+    <div className="matrix-head">
+      <div className="matrix-titles">
+        <h3>Price Change Matrix · by Category &amp; Brand</h3>
+        <p className="muted matrix-sub">
+          Like-for-like average price change across calendar {granMeta.noun} — only items priced in both periods move a
+          cell. ▲ up = cost rose (red), ▼ down = fell (green).
+        </p>
+      </div>
+      <GranularityToggle value={granularity} onChange={onGranularity} />
+    </div>
+  );
+
+  // ---- states: loading -> empty -> accumulating -> table ----
+  if (anyLoading && !model.usableCats?.length) {
+    return (
+      <section className="card">
+        {header}
+        <div className="card muted matrix-state">Loading captures…</div>
+      </section>
+    );
+  }
+  if (!model.usableCats.length) {
+    return (
+      <section className="card">
+        {header}
+        <div className="card empty matrix-state">
+          <div className="empty-tag">NO CAPTURES ON RECORD</div>
+          <h2>Awaiting the first captures</h2>
+          <p>
+            This matrix populates automatically once at least two weekly captures are on record for a live category. It
+            never shows fabricated or placeholder movement.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const rows = model.matrix.rows;
+  if (!rows.length) {
+    // fewer than two populated buckets at this granularity — suggest one that works
+    const better = GRANS.filter((g) => model.periodCounts[g.key] >= 2).map((g) => `${g.label} (${model.periodCounts[g.key]} ${g.noun})`);
+    return (
+      <section className="card">
+        {header}
+        <div className="periods-empty matrix-accum">
+          <strong>{granMeta.label}</strong> activates once captures span two calendar {granMeta.noun}. So far they fall
+          in a single {granMeta.noun.replace(/s$/, '')} ({model.periodCounts[granularity]} on record).
+          {better.length ? (
+            <>
+              {' '}
+              Try <strong>{better.join(' or ')}</strong>, which already {better.length > 1 ? 'have' : 'has'} enough
+              history.
+            </>
+          ) : (
+            ' More captures accrue every Monday.'
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card">
+      {header}
+      <MatrixKPIs
+        granShort={granMeta.short}
+        kpi={model.matrix.kpi}
+        captures={model.captures}
+        periods={model.periodCounts[granularity]}
+        fresh={model.fresh}
+      />
+      <MatrixTable groups={model.matrix.groups} leaf={model.matrix.leaf} rows={rows} gran={granularity} />
+      <MatrixLegend />
+    </section>
+  );
+}
+
 // Overview tab: trends banner + capture stat cards + field coverage (full width).
 function Overview({ data, catName }) {
   return (
@@ -627,7 +1065,8 @@ function Methodology() {
 export default function App() {
   const [dataMap, setDataMap] = useState({}); // slug -> raw json | null | undefined(unloaded)
   const [healthMap, setHealthMap] = useState({}); // slug -> health json | null
-  const [tab, setTab] = useState('Table');
+  const [tab, setTab] = useState('Analysis');
+  const [gran, setGran] = useState('week'); // Analysis matrix granularity: week | month | quarter
   const [filter, setFilter] = useState('');
   const [companies, setCompanies] = useState([]);
   const [priceFilter, setPriceFilter] = useState('all'); // all | priced | unpriced
@@ -696,7 +1135,9 @@ export default function App() {
     setCompanies([]);
     setPriceFilter('all');
     setStockFilter('all');
-    setTab('Table');
+    // The Analysis matrix is cross-category — don't yank the user off it when
+    // they click a category; every other tab jumps to the per-category Table.
+    setTab((t) => (t === 'Analysis' ? 'Analysis' : 'Table'));
   };
 
   const downloadXlsx = useCallback(async () => {
@@ -798,8 +1239,10 @@ export default function App() {
             ))}
           </nav>
           <main className="content">
-            <HealthBanner alert={alert} />
-            {!isLive ? (
+            {tab !== 'Analysis' && <HealthBanner alert={alert} />}
+            {tab === 'Analysis' ? (
+              <AnalysisMatrix dataMap={dataMap} granularity={gran} onGranularity={setGran} />
+            ) : !isLive ? (
               tab === 'Methodology' ? <Methodology /> : <PlannedCategory cat={cat} />
             ) : tab === 'Methodology' ? (
               <Methodology />
