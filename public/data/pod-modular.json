@@ -1,7 +1,7 @@
 {
   "status": "ok",
   "reason": null,
-  "captured_at": "2026-07-06T11:07:58.096Z",
+  "captured_at": "2026-07-13T09:49:37.529Z",
   "source": "graybar",
   "search_url": "https://www.graybar.com/search/?text=micro+data+center",
   "counts": {
@@ -15,8 +15,8 @@
     "currency_amounts_on_first_page": 1,
     "json_payloads_captured": 20
   },
-  "total_rows_on_record": 8,
-  "scrapes_on_record": 2,
+  "total_rows_on_record": 12,
+  "scrapes_on_record": 3,
   "field_presence": {
     "title": 4,
     "brand": 4,
@@ -58,6 +58,20 @@
       "brand_of": {
         "26472156": "Panduit"
       }
+    },
+    {
+      "captured_at": "2026-07-13T09:49:37.529Z",
+      "rows": 4,
+      "priced": 1,
+      "in_stock": 0,
+      "avg_price": 14760.23,
+      "median_price": 14760.23,
+      "prices": {
+        "26472156": 14760.23
+      },
+      "brand_of": {
+        "26472156": "Panduit"
+      }
     }
   ],
   "products": [
@@ -72,7 +86,7 @@
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/micro-data-center-nema-type-12-42ru-for-20k-btu-ac/p/26579120",
-      "captured_at": "2026-07-06T11:07:58.096Z",
+      "captured_at": "2026-07-13T09:49:37.529Z",
       "sku": "26579120",
       "mfr": "MDC82NL",
       "stock_level": 0,
@@ -89,7 +103,7 @@
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/micro-data-center-nema-type-12-42ru-for-12k-btu-ac/p/26579121",
-      "captured_at": "2026-07-06T11:07:58.096Z",
+      "captured_at": "2026-07-13T09:49:37.529Z",
       "sku": "26579121",
       "mfr": "MDC82NS",
       "stock_level": 0,
@@ -106,7 +120,7 @@
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/ecostruxure-micro-data-center-with-42u-sx-rack-5kva-208v-60-hz-pre-assembled-1991h-x-600w-x-1070d-mm-mdc42sx5kvat/p/26053241",
-      "captured_at": "2026-07-06T11:07:58.096Z",
+      "captured_at": "2026-07-13T09:49:37.529Z",
       "sku": "26053241",
       "mfr": "MDC42SX5KVAT",
       "stock_level": 0,
@@ -123,7 +137,7 @@
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/micro-data-center-nema-type-12-42ru-solid-panels/p/26472156",
-      "captured_at": "2026-07-06T11:07:58.096Z",
+      "captured_at": "2026-07-13T09:49:37.529Z",
       "sku": "26472156",
       "mfr": "MDC82NN",
       "stock_level": 0,
