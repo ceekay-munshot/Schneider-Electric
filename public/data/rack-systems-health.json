@@ -1,8 +1,8 @@
 {
-  "last_attempt_at": "2026-08-17T05:55:15.063Z",
+  "last_attempt_at": "2026-08-24T05:59:06.523Z",
   "last_attempt_status": "failed",
   "last_success_at": "2026-08-10T07:33:53.442Z",
-  "consecutive_failures": 1,
-  "run_url": "https://github.com/ceekay-munshot/Schneider-Electric/actions/runs/31993471882",
+  "consecutive_failures": 2,
+  "run_url": "https://github.com/ceekay-munshot/Schneider-Electric/actions/runs/32689106513",
   "hint": "auth_failed_or_price_hidden: no_prices_after_enrichment"
 }
