@@ -334,6 +334,7 @@ async function fetchDetailSample(page, sku) {
     }, sku);
     await writeFile(path.join(OUTPUT_DIR, 'graybar-detail-sample.json'), JSON.stringify(res, null, 2));
     log(`detail-sample: /p/details/${sku} -> ${res.status} ${res.ct} (${res.body.length} bytes saved)`);
+    log(`detail-sample body[0:600]: ${res.body.slice(0, 600).replace(/\s+/g, ' ')}`);
   } catch (e) {
     debug('fetchDetailSample failed:', e?.message);
   }
@@ -432,6 +433,10 @@ async function enrichPrices(page, products) {
     } catch (e) {
       debug('enrich batch evaluate failed:', e?.message);
       results = chunk.map(() => ({ _err: 'evaluate_failed' }));
+    }
+    if (i === 0) {
+      const d0 = results[0];
+      log(`enrich-diag: first detail response keys=[${d0 ? Object.keys(d0).join(',') : 'null'}] price=${JSON.stringify(d0?.price ?? null)}`);
     }
     chunk.forEach((p, j) => {
       const d = results[j];
