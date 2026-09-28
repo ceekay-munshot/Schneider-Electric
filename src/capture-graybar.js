@@ -436,12 +436,14 @@ async function enrichPrices(page, products) {
     }
     if (i === 0) {
       const d0 = results[0];
-      log(`enrich-diag: first detail response keys=[${d0 ? Object.keys(d0).join(',') : 'null'}] price=${JSON.stringify(d0?.price ?? null)}`);
+      log(`enrich-diag: first detail response keys=[${d0 ? Object.keys(d0).join(',') : 'null'}] price=${JSON.stringify(d0?.price ?? null)} listPrice=${JSON.stringify(d0?.listPrice ?? null)} callForPricing=${JSON.stringify(d0?.callForPricing ?? null)}`);
     }
     chunk.forEach((p, j) => {
       const d = results[j];
       if (d && !d._status && !d._err) {
-        const pr = d.price || {};
+        // d.price = negotiated/contract price (null when account has no contract for this SKU);
+        // d.listPrice = catalog/MSRP price (available even when callForPricing=true).
+        const pr = d.price || d.listPrice || {};
         p.price = pr.formattedValue ?? (pr.value != null ? String(pr.value) : p.price);
         p.price_value = typeof pr.value === 'number' ? pr.value : null;
         p.currency = pr.currencyIso ?? null;
