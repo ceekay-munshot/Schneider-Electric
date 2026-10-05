@@ -457,6 +457,7 @@ async function enrichPrices(page, products) {
           p.category = d.categories.map((c) => c && c.name).filter(Boolean).join(' / ') || null;
         }
         if (!p.mfr) p.mfr = d.manPartNum ?? null;
+        p.callForPricing = d.callForPricing === true;
         if (hasDigit(p.price)) withPrice++;
       } else {
         errors++;
@@ -627,8 +628,18 @@ async function main() {
         status = STATUS.AUTH_FAILED_OR_PRICE_HIDDEN;
         reason = loginRes.ok ? 'no_products_extracted' : `login_unconfirmed:${loginRes.reason || ''}`;
       } else if (!pricesPresent) {
-        status = STATUS.AUTH_FAILED_OR_PRICE_HIDDEN;
-        reason = ENRICH ? 'no_prices_after_enrichment' : 'prices_not_enriched';
+        // If enrichment ran and every product returned callForPricing=true, login
+        // succeeded and the category is genuinely quote-only (e.g. pod-modular, dcim).
+        // Treat the capture as ok so the data is published rather than suppressed.
+        const allCallForPricing = ENRICH && products.length > 0 &&
+          products.every((p) => p.callForPricing === true);
+        if (allCallForPricing) {
+          status = STATUS.OK;
+          reason = 'all_call_for_pricing';
+        } else {
+          status = STATUS.AUTH_FAILED_OR_PRICE_HIDDEN;
+          reason = ENRICH ? 'no_prices_after_enrichment' : 'prices_not_enriched';
+        }
       } else {
         status = STATUS.OK;
       }
