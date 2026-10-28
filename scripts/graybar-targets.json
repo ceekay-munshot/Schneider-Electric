@@ -1,0 +1,26 @@
+[
+  {
+    "slug": "dcim",
+    "url": "https://www.graybar.com/search/?text=EcoStruxure+IT"
+  },
+  {
+    "slug": "pod-modular",
+    "url": "https://www.graybar.com/search/?text=micro+data+center"
+  },
+  {
+    "slug": "busway",
+    "url": "https://www.graybar.com/search/?q=query%3Abusway%3Bsort%3Arelevance&text=busway"
+  },
+  {
+    "slug": "ups",
+    "url": "https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3ATripp+Lite+%28Eaton%29%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ALiebert+%28Vertiv%29%3Bbrands%3AEaton%3Bbrands%3AChatsworth&text=ups&enablePartNumberSearch="
+  },
+  {
+    "slug": "rack-pdus",
+    "url": "https://www.graybar.com/search/?q=query%3Arack+pdu%3Bsort%3Arelevance%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ALiebert+%28Vertiv%29%3Bbrands%3AServer+Technology%3Bbrands%3AChatsworth%3Bbrands%3ATripp+Lite+%28Eaton%29&text=rack+pdu"
+  },
+  {
+    "slug": "rack-systems",
+    "url": "https://www.graybar.com/search/?q=query%3Aserver+rack%3Bsort%3Arelevance%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3AChatsworth%3Bbrands%3AB-Line+%28Eaton%29%3Bbrands%3APanduit%3Bbrands%3ATripp+Lite+%28Eaton%29&text=server+rack"
+  }
+]

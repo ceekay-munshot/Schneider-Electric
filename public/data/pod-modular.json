@@ -1,12 +1,12 @@
 {
   "status": "ok",
   "reason": null,
-  "captured_at": "2026-10-26T10:00:38.217Z",
+  "captured_at": "2026-10-19T14:05:56.606Z",
   "source": "graybar",
   "search_url": "https://www.graybar.com/search/?text=micro+data+center",
   "counts": {
     "products": 4,
-    "priced": 0,
+    "priced": 1,
     "pages_visited": 3,
     "page_cap_hit": false,
     "enriched": 4,
@@ -15,8 +15,8 @@
     "currency_amounts_on_first_page": 1,
     "json_payloads_captured": 4
   },
-  "total_rows_on_record": 56,
-  "scrapes_on_record": 14,
+  "total_rows_on_record": 44,
+  "scrapes_on_record": 11,
   "field_presence": {
     "title": 4,
     "brand": 4,
@@ -24,7 +24,7 @@
     "cat_mpn": 4,
     "upc": 4,
     "category": 4,
-    "price": 0,
+    "price": 1,
     "unit_of_measure": 4,
     "availability": 4,
     "product_url": 4,
@@ -158,16 +158,6 @@
       }
     },
     {
-      "captured_at": "2026-10-05T06:09:53.525Z",
-      "rows": 4,
-      "priced": 0,
-      "in_stock": 0,
-      "avg_price": null,
-      "median_price": null,
-      "prices": {},
-      "brand_of": {}
-    },
-    {
       "captured_at": "2026-10-05T13:18:12.705Z",
       "rows": 4,
       "priced": 1,
@@ -182,16 +172,6 @@
       }
     },
     {
-      "captured_at": "2026-10-12T15:42:46.740Z",
-      "rows": 4,
-      "priced": 0,
-      "in_stock": 0,
-      "avg_price": null,
-      "median_price": null,
-      "prices": {},
-      "brand_of": {}
-    },
-    {
       "captured_at": "2026-10-19T14:05:56.606Z",
       "rows": 4,
       "priced": 1,
@@ -204,16 +184,6 @@
       "brand_of": {
         "26472156": "Panduit"
       }
-    },
-    {
-      "captured_at": "2026-10-26T10:00:38.217Z",
-      "rows": 4,
-      "priced": 0,
-      "in_stock": 0,
-      "avg_price": null,
-      "median_price": null,
-      "prices": {},
-      "brand_of": {}
     }
   ],
   "products": [
@@ -228,7 +198,7 @@
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/micro-data-center-nema-type-12-42ru-for-12k-btu-ac/p/26579121",
-      "captured_at": "2026-10-26T10:00:38.217Z",
+      "captured_at": "2026-10-19T14:05:56.606Z",
       "sku": "26579121",
       "mfr": "MDC82NS",
       "stock_level": 0,
@@ -245,7 +215,7 @@
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/ecostruxure-micro-data-center-with-42u-sx-rack-5kva-208v-60-hz-pre-assembled-1991h-x-600w-x-1070d-mm-mdc42sx5kvat/p/26053241",
-      "captured_at": "2026-10-26T10:00:38.217Z",
+      "captured_at": "2026-10-19T14:05:56.606Z",
       "sku": "26053241",
       "mfr": "MDC42SX5KVAT",
       "stock_level": 0,
@@ -262,7 +232,7 @@
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/micro-data-center-nema-type-12-42ru-for-20k-btu-ac/p/26579120",
-      "captured_at": "2026-10-26T10:00:38.217Z",
+      "captured_at": "2026-10-19T14:05:56.606Z",
       "sku": "26579120",
       "mfr": "MDC82NL",
       "stock_level": 0,
@@ -275,15 +245,15 @@
       "cat_mpn": "MDC82NN",
       "upc": "613056574397",
       "category": "Network Cabinets",
-      "price": null,
+      "price": "$14,760.23",
       "unit_of_measure": "ea",
       "availability": "outOfStock (0)",
       "product_url": "https://www.graybar.com/micro-data-center-nema-type-12-42ru-solid-panels/p/26472156",
-      "captured_at": "2026-10-26T10:00:38.217Z",
+      "captured_at": "2026-10-19T14:05:56.606Z",
       "sku": "26472156",
       "mfr": "MDC82NN",
       "stock_level": 0,
-      "price_value": null
+      "price_value": 14760.23
     }
   ]
 }
