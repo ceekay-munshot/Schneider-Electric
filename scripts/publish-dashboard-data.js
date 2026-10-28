@@ -14,16 +14,28 @@
  * and re-runs are safe in any order. Top-level fields (products, counts,
  * field_presence, …) always describe the NEWEST capture on record.
  *
+ * Two guards keep the history clean (rules shared via scripts/lib/capture-quality.js):
+ *   - a capture with ZERO prices in a category that normally has them is a
+ *     failed capture (anonymous/unpriced session), never published;
+ *   - a capture that prices clearly fewer items than one already on record for
+ *     the same ISO week is not published, so a weak re-try can never replace a
+ *     good weekly data point (the dashboard buckets by week, latest wins).
+ *
  * Usage: node scripts/publish-dashboard-data.js [sourceJson] [outJson]
  *   defaults: output/graybar-ups-latest.json  ->  public/data/latest-capture.json
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { companyOf } from '../src/categories.js';
+import { typicalPriced, isPriceOutage, isoWeekKey, pricedOf } from './lib/capture-quality.js';
 
 const SRC = process.argv[2] || 'output/graybar-ups-latest.json';
 const OUT = process.argv[3] || 'public/data/latest-capture.json';
+
+// A same-week capture must price at least this share of the week's best one.
+const SAME_WEEK_MIN_SHARE = 0.9;
 
 // History entries keep their per-item price map only this many captures back
 // (weekly cadence ≈ 14 months — plenty for like-for-like QoQ). Older entries
@@ -129,6 +141,22 @@ function historyEntryOf(capturedAt, products) {
   };
 }
 
+/** Why an incoming capture must not be published over `existing`, or null. */
+function rejectReason(entry, existing) {
+  const history = Array.isArray(existing?.history) ? existing.history : [];
+  const typical = typicalPriced(history);
+  if (isPriceOutage(entry.priced, typical)) {
+    return `capture has 0 prices but this category normally has ~${typical} — treating it as a failed capture`;
+  }
+  const week = isoWeekKey(entry.captured_at);
+  const sameWeek = history.filter((h) => h.captured_at !== entry.captured_at && isoWeekKey(h.captured_at) === week);
+  const best = sameWeek.reduce((m, h) => Math.max(m, pricedOf(h)), 0);
+  if (best > 0 && entry.priced < SAME_WEEK_MIN_SHARE * best) {
+    return `capture prices ${entry.priced} items but ${week} already has a capture with ${best} — keeping the better one`;
+  }
+  return null;
+}
+
 async function readJsonOrNull(file) {
   try {
     return JSON.parse(await readFile(file, 'utf8'));
@@ -155,9 +183,15 @@ async function main() {
   }
 
   const products = (raw.products || []).map((p) => mapProduct(p, raw.captured_at));
+  const incoming = historyEntryOf(raw.captured_at, products);
 
   // ---- merge into the existing history (if any) ----------------------------
   const existing = await readJsonOrNull(OUT);
+  const rejected = rejectReason(incoming, existing);
+  if (rejected) {
+    console.error(`[publish] not publishing ${raw.captured_at}: ${rejected}. Dashboard keeps current data.`);
+    process.exit(0);
+  }
   const history = new Map(); // captured_at -> entry
   if (existing && Array.isArray(existing.history)) {
     for (const h of existing.history) if (h && h.captured_at) history.set(h.captured_at, h);
@@ -166,7 +200,7 @@ async function main() {
     const prev = existing.products.map((p) => mapProduct(p, existing.captured_at));
     history.set(existing.captured_at, historyEntryOf(existing.captured_at, prev));
   }
-  history.set(raw.captured_at, historyEntryOf(raw.captured_at, products));
+  history.set(raw.captured_at, incoming);
 
   const entries = [...history.values()].sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
   // Older entries keep summary stats only — drop their bulky per-item maps.
@@ -223,4 +257,7 @@ async function main() {
   );
 }
 
-main();
+export { historyEntryOf, rejectReason, mapProduct };
+
+const isEntryPoint = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isEntryPoint) main();

@@ -10,6 +10,9 @@
  *   captureJson: output/graybar-<slug>-latest.json — if present and non-ok,
  *                its status/reason becomes the failure hint.
  * Env: CAPTURE_OUTCOME ("success" | anything else = failed), RUN_URL.
+ *
+ * A run cut short (job timeout / cancel) whose capture file still says "ok"
+ * saved real prices before exiting and is published, so it counts as success.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import process from 'node:process';
@@ -21,7 +24,16 @@ if (!OUT) {
   process.exit(1);
 }
 
-const ok = process.env.CAPTURE_OUTCOME === 'success';
+let cap = null;
+if (CAPTURE_SRC) {
+  try {
+    cap = JSON.parse(await readFile(CAPTURE_SRC, 'utf8'));
+  } catch {
+    /* capture wrote nothing — the run log is the only diagnostic */
+  }
+}
+
+const ok = process.env.CAPTURE_OUTCOME === 'success' || cap?.status === 'ok';
 const now = new Date().toISOString();
 
 let prev = null;
@@ -32,14 +44,8 @@ try {
 }
 
 let hint = null;
-if (!ok && CAPTURE_SRC) {
-  try {
-    const cap = JSON.parse(await readFile(CAPTURE_SRC, 'utf8'));
-    if (cap.status && cap.status !== 'ok') hint = cap.reason ? `${cap.status}: ${cap.reason}` : String(cap.status);
-  } catch {
-    /* capture wrote nothing — the run log is the only diagnostic */
-  }
-}
+if (!ok && cap?.status) hint = cap.reason ? `${cap.status}: ${cap.reason}` : String(cap.status);
+if (!ok && !hint && process.env.CAPTURE_OUTCOME === 'cancelled') hint = 'run cancelled (job timeout?) before any data was saved';
 
 const health = {
   last_attempt_at: now,
