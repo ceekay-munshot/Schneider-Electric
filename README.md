@@ -46,6 +46,36 @@ otherwise shows a safe "Awaiting first successful Rexel capture" empty state. It
 never fabricates prices or history. A future workflow step can publish the
 scraper's latest successful capture to that path to populate the UI.
 
+## Graybar capture pipeline (what fills the dashboard)
+
+Workflow: [`.github/workflows/graybar-capture.yml`](.github/workflows/graybar-capture.yml),
+secrets `GRAYBAR_EMAIL` / `GRAYBAR_PASSWORD`.
+
+- **Self-healing schedule.** Runs daily at 03:30 UTC. A `plan` job
+  ([`scripts/plan-captures.js`](scripts/plan-captures.js)) picks only the
+  categories with no good capture in the current ISO week, so Monday captures
+  everything and any category that failed, timed out or came back thin is
+  re-tried on the following days. Manual runs take `all`, `stale` or slugs.
+  Categories and search URLs live in [`scripts/graybar-targets.json`](scripts/graybar-targets.json).
+- **Verified login.** Graybar answers a logged-out session like a quote-only
+  product (`price: null`, `callForPricing: true`). The scraper checks the
+  session (auth-status endpoint, page dataLayer, a price probe of SKUs priced
+  last time), retries login with a clean cookie jar, and re-logs in if the
+  session drops mid-run. Without a priced session it stops instead of
+  publishing empty prices.
+- **Never loses a week to a timeout.** SKUs priced last time are enriched
+  first, misses are re-tried, each request has a timeout, and the run stops at
+  `GRAYBAR_TIME_BUDGET_MIN` (or on job cancel) writing what it captured.
+- **Clean history.** [`scripts/publish-dashboard-data.js`](scripts/publish-dashboard-data.js)
+  refuses a zero-price capture of a category that normally has prices, and a
+  weaker re-try of a week that already has a better capture. Rules are shared
+  in [`scripts/lib/capture-quality.js`](scripts/lib/capture-quality.js).
+- **Safe commits.** [`scripts/commit-capture.sh`](scripts/commit-capture.sh)
+  re-applies health + data on a fresh `origin/main` and retries the push.
+- **Repair.** `npm run repair:data` drops zero-price captures that slipped into
+  `public/data/*.json` and restores the last priced product list from git
+  history (idempotent).
+
 ## Secrets / credentials
 
 Credentials are read **only** from environment variables:

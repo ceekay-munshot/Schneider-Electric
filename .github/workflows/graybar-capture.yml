@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       category:
-        description: "Category to capture: all, or a slug (ups, busway, rack-pdus, rack-systems, dcim, pod-modular)"
+        description: "What to capture: all | stale (only categories without a good capture this week) | slug(s), comma-separated: ups, busway, rack-pdus, rack-systems, dcim, pod-modular"
         type: string
         default: "all"
       debug:
@@ -15,9 +15,13 @@ on:
         description: "Limit price enrichment to N products (blank = all). Use a small N to validate."
         type: string
         default: ""
-  # Weekly — Mondays at 03:30 UTC.
+  # Daily at 03:30 UTC, self-healing: each run captures only the categories
+  # that have no good capture yet in the current ISO week (see
+  # scripts/plan-captures.js). Monday's run captures everything; any category
+  # that failed, timed out or came back with thin price coverage is re-tried on
+  # the following days until the week has a good data point.
   schedule:
-    - cron: "30 3 * * 1"
+    - cron: "30 3 * * *"
 
 # contents: write so a successful capture can publish its data and the Cloudflare
 # Pages dashboard auto-refreshes. (Enabled at the user's direction.)
@@ -29,117 +33,111 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  capture:
+  plan:
     runs-on: ubuntu-latest
-    # 120 min: Rack Systems (~2,850 products, full enrichment) is the long pole.
-    timeout-minutes: 120
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      # Plan against the newest published data (a queued run may start long
+      # after it was triggered).
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
 
-    # One matrix slice per live category, run sequentially (max-parallel: 1) so
-    # their commits to public/data/<slug>.json never race. Add a category by
-    # adding a {slug, url} entry here and a live entry in src/categories.js.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Plan captures
+        id: plan
+        env:
+          PLAN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.category || 'stale' }}
+        run: node scripts/plan-captures.js
+
+  capture:
+    needs: plan
+    if: ${{ needs.plan.outputs.count != '0' }}
+    name: capture (${{ matrix.slug }})
+    runs-on: ubuntu-latest
+    # Hosted runners allow 360. The scraper stops itself at
+    # GRAYBAR_TIME_BUDGET_MIN and writes what it captured well before this, so
+    # a slow week yields partial data instead of a cancelled job with nothing.
+    timeout-minutes: 330
+
+    # One slice per category from the plan, run sequentially (max-parallel: 1):
+    # one Graybar session at a time. Add a category by adding a {slug, url} entry
+    # to scripts/graybar-targets.json and a live entry in src/categories.js.
     strategy:
       fail-fast: false
       max-parallel: 1
-      matrix:
-        include:
-          - slug: ups
-            url: "https://www.graybar.com/search/?q=query%3Aups%3Bsort%3Arelevance%3Bbrands%3ATripp+Lite+%28Eaton%29%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ALiebert+%28Vertiv%29%3Bbrands%3AEaton%3Bbrands%3AChatsworth&text=ups&enablePartNumberSearch="
-          - slug: busway
-            url: "https://www.graybar.com/search/?q=query%3Abusway%3Bsort%3Arelevance&text=busway"
-          - slug: rack-pdus
-            url: "https://www.graybar.com/search/?q=query%3Arack+pdu%3Bsort%3Arelevance%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3ALiebert+%28Vertiv%29%3Bbrands%3AServer+Technology%3Bbrands%3AChatsworth%3Bbrands%3ATripp+Lite+%28Eaton%29&text=rack+pdu"
-          - slug: rack-systems
-            url: "https://www.graybar.com/search/?q=query%3Aserver+rack%3Bsort%3Arelevance%3Bbrands%3AAPC+%28Schneider+Electric%29%3Bbrands%3AChatsworth%3Bbrands%3AB-Line+%28Eaton%29%3Bbrands%3APanduit%3Bbrands%3ATripp+Lite+%28Eaton%29&text=server+rack"
-          - slug: dcim
-            url: "https://www.graybar.com/search/?text=EcoStruxure+IT"
-          - slug: pod-modular
-            url: "https://www.graybar.com/search/?text=micro+data+center"
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     env:
       GRAYBAR_EMAIL: ${{ secrets.GRAYBAR_EMAIL }}
       GRAYBAR_PASSWORD: ${{ secrets.GRAYBAR_PASSWORD }}
       GRAYBAR_CATEGORY: ${{ matrix.slug }}
       GRAYBAR_SEARCH_URL: ${{ matrix.url }}
-      # 'true' for scheduled runs (all categories) or a dispatch that selects all
-      # or this slice's slug; 'false' to skip this slice.
-      RUN_THIS: ${{ github.event_name != 'workflow_dispatch' || inputs.category == 'all' || inputs.category == matrix.slug }}
 
     steps:
       - name: Checkout
-        if: ${{ env.RUN_THIS == 'true' }}
         uses: actions/checkout@v4
 
       - name: Validate secrets are present
-        if: ${{ env.RUN_THIS == 'true' }}
         run: |
           test -n "$GRAYBAR_EMAIL" || { echo "Missing GRAYBAR_EMAIL"; exit 1; }
           test -n "$GRAYBAR_PASSWORD" || { echo "Missing GRAYBAR_PASSWORD"; exit 1; }
           echo "Graybar secrets are present."
 
       - name: Setup Node
-        if: ${{ env.RUN_THIS == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install dependencies
-        if: ${{ env.RUN_THIS == 'true' }}
-        run: npm ci
+        run: |
+          for i in 1 2 3; do npm ci && exit 0; echo "npm ci failed (attempt $i); retrying"; sleep $((i * 20)); done
+          exit 1
 
       - name: Install Playwright browsers
-        if: ${{ env.RUN_THIS == 'true' }}
-        run: npx playwright install --with-deps chromium
+        run: |
+          for i in 1 2 3; do npx playwright install --with-deps chromium && exit 0; echo "playwright install failed (attempt $i); retrying"; sleep $((i * 20)); done
+          exit 1
 
+      # exec node directly (not via npm or a bash child) so a job timeout's
+      # SIGINT reaches the scraper, which then writes what it captured.
       - name: Run capture (${{ matrix.slug }})
         id: capture
-        if: ${{ env.RUN_THIS == 'true' }}
         env:
           DEBUG: ${{ inputs.debug }}
           GRAYBAR_ENRICH_CAP: ${{ inputs.enrich_cap }}
-        run: npm run capture:graybar
+          GRAYBAR_TIME_BUDGET_MIN: "290"
+        run: exec node src/capture-graybar.js
 
-      # Runs on success AND failure: records the attempt (streak, last success,
-      # run link) so the dashboard can show a failure banner instead of silently
-      # aging when scheduled captures start dying.
-      - name: Record capture health
-        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.conclusion != 'skipped' }}
+      # Runs on success, failure AND cancel: records the attempt (streak, last
+      # success, run link) so the dashboard shows a failure banner instead of
+      # silently aging, and publishes the data if the capture produced real
+      # prices (publish-dashboard-data.js refuses anything else). Copied out of
+      # the work tree because the script resets it to the latest origin/main.
+      - name: Record health, publish and commit
+        if: ${{ always() && steps.capture.conclusion != 'skipped' }}
         env:
           CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node scripts/record-health.js public/data/${{ matrix.slug }}-health.json output/graybar-${{ matrix.slug }}-latest.json
-
-      # Publish runs only when the capture step succeeded (status=ok);
-      # publish-dashboard-data.js itself refuses to publish a non-"ok" capture.
-      - name: Publish ${{ matrix.slug }} to dashboard data
-        if: ${{ env.RUN_THIS == 'true' }}
-        run: node scripts/publish-dashboard-data.js output/graybar-${{ matrix.slug }}-latest.json public/data/${{ matrix.slug }}.json
-
-      # Commits on success AND failure (a failed attempt still updates the
-      # health file, so the dashboard banner appears via the Pages rebuild).
-      - name: Commit dashboard data
-        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.conclusion != 'skipped' }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/${{ matrix.slug }}.json public/data/${{ matrix.slug }}-health.json
-          if git diff --cached --quiet -- public/data/; then
-            echo "No dashboard data change for ${{ matrix.slug }}; nothing to commit."
-            exit 0
-          fi
-          # No [skip ci] here: Cloudflare Pages treats it as a build-skip directive,
-          # which is exactly the build that publishes this data. GitHub Actions can't
-          # loop on this push anyway (GITHUB_TOKEN pushes never trigger workflows).
-          git commit -m "data: weekly ${{ matrix.slug }} capture refresh (${{ steps.capture.outcome }})"
-          git pull --rebase --autostash origin main || true
-          git push origin HEAD:main
+          cp scripts/commit-capture.sh "$RUNNER_TEMP/commit-capture.sh"
+          bash "$RUNNER_TEMP/commit-capture.sh" "${{ matrix.slug }}"
 
       # Public repo: any logged-in GitHub user can download artifacts. The debug
       # set (full-page HTML, screenshots, raw API payloads) comes from an
       # authenticated distributor session and can expose the account identity
       # and negotiated pricing — so successful runs upload data files only.
       - name: Upload capture data
-        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.outcome == 'success' }}
+        if: ${{ always() && (steps.capture.outcome == 'success' || steps.capture.outcome == 'cancelled') }}
         uses: actions/upload-artifact@v4
         with:
           name: graybar-${{ matrix.slug }}-capture-${{ github.run_id }}
@@ -153,7 +151,7 @@ jobs:
       # Full debug set only when the capture failed, kept a week — enough to
       # diagnose, not a standing exposure.
       - name: Upload debug artifacts (failed capture)
-        if: ${{ always() && env.RUN_THIS == 'true' && steps.capture.outcome == 'failure' }}
+        if: ${{ always() && steps.capture.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: graybar-${{ matrix.slug }}-debug-${{ github.run_id }}
