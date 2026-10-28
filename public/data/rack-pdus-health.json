@@ -1,8 +1,8 @@
 {
   "last_attempt_at": "2026-10-26T09:40:13.069Z",
-  "last_attempt_status": "ok",
-  "last_success_at": "2026-10-26T09:40:13.069Z",
-  "consecutive_failures": 0,
+  "last_attempt_status": "failed",
+  "last_success_at": "2026-10-12T12:36:51.805Z",
+  "consecutive_failures": 1,
   "run_url": "https://github.com/ceekay-munshot/Schneider-Electric/actions/runs/40297787320",
-  "hint": null
+  "hint": "auth_failed_or_price_hidden: Graybar returned no prices (session not logged in); showing the last priced capture"
 }
