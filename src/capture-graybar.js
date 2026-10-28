@@ -424,8 +424,8 @@ async function probePrices(page, knownPriced) {
   return { tried: sample.length, priced };
 }
 
-/** Log in and confirm the session is authenticated, re-trying with a clean
- * cookie jar. Returns { ok, verdict, challenge?, blockers?, detail }. */
+/** Log in and confirm the session is authenticated and priced, re-trying with
+ * a clean cookie jar. Returns { ok, verdict, challenge?, noPrices?, detail }. */
 async function ensureSession(page, context, creds, baseline) {
   let last = { ok: false, verdict: 'unknown', detail: 'not_attempted' };
   for (let attempt = 1; attempt <= LOGIN_ATTEMPTS; attempt++) {
@@ -441,6 +441,15 @@ async function ensureSession(page, context, creds, baseline) {
     const detail = `status=${signals.status ?? '?'} dataLayer=${signals.dl ?? '?'} probe=${probe.priced}/${probe.tried}${res.ok ? '' : ` ${res.reason}`}`;
     log(`session check (attempt ${attempt}/${LOGIN_ATTEMPTS}): ${verdict} [${detail}]`);
     last = { ok: verdict !== 'no', verdict, detail };
+    if (verdict === 'yes' && probe.tried > 0 && probe.priced === 0) {
+      // Logged in, yet SKUs priced last time come back unpriced: give the price
+      // service one more chance, then stop instead of enriching thousands of
+      // products for nothing — Graybar is showing this account no prices.
+      await sleep(90000);
+      const again = await probePrices(page, baseline.knownPriced);
+      log(`price re-probe: ${again.priced}/${again.tried}`);
+      if (again.priced === 0) return { ok: false, verdict, noPrices: true, detail: `${detail}; re-probe=0/${again.tried}` };
+    }
     if (verdict === 'yes') return last;
     if (verdict === 'unknown' && !baseline.knownPriced.size) return last; // nothing better to check against
   }
@@ -898,6 +907,11 @@ async function main() {
 
     if (session.challenge) {
       run.fixed = { status: STATUS.AUTH_FAILED_OR_PRICE_HIDDEN, reason: `challenge_detected:${(session.blockers || []).join('|')}` };
+    } else if (session.noPrices) {
+      run.fixed = {
+        status: STATUS.AUTH_FAILED_OR_PRICE_HIDDEN,
+        reason: `account_sees_no_prices(logged in; ${session.detail})`,
+      };
     } else if (!session.ok) {
       // Don't spend an hour enriching as an anonymous visitor: nothing it
       // returns could be published.
