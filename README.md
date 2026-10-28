@@ -62,7 +62,10 @@ secrets `GRAYBAR_EMAIL` / `GRAYBAR_PASSWORD`.
   session (auth-status endpoint, page dataLayer, a price probe of SKUs priced
   last time), retries login with a clean cookie jar, and re-logs in if the
   session drops mid-run. Without a priced session it stops instead of
-  publishing empty prices.
+  publishing empty prices. If the account is logged in but Graybar shows it no
+  prices (`account_sees_no_prices` in the health hint), the run stops after a
+  quick probe; check the account on graybar.com. The daily run picks the data
+  back up by itself once prices return.
 - **Never loses a week to a timeout.** SKUs priced last time are enriched
   first, misses are re-tried, each request has a timeout, and the run stops at
   `GRAYBAR_TIME_BUDGET_MIN` (or on job cancel) writing what it captured.
