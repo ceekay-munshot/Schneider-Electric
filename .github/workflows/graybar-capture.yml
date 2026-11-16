@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -62,7 +62,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.count != '0' }}
     name: capture (${{ matrix.slug }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Hosted runners allow 360. The scraper stops itself at
     # GRAYBAR_TIME_BUDGET_MIN and writes what it captured well before this, so
     # a slow week yields partial data instead of a cancelled job with nothing.
